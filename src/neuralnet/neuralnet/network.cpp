@@ -2,9 +2,9 @@
 #include "neuralnet/network.h"
 
 namespace neuralnet {
-    double* network::get_bias(layer_t* layer, uint64_t current) { return &layer->biases[current]; }
+    number_t* network::get_bias(layer_t* layer, uint64_t current) { return &layer->biases[current]; }
 
-    double* network::get_weight(layer_t* layer, uint64_t current, uint64_t previous) {
+    number_t* network::get_weight(layer_t* layer, uint64_t current, uint64_t previous) {
         uint64_t index = current * layer->previous_size + previous;
         return &layer->weights[index];
     }
@@ -31,21 +31,21 @@ namespace neuralnet {
             dst_layer.previous_size = src_layer.previous_size;
             dst_layer.function = src_layer.function;
 
-            size_t biases_size = dst_layer.size * sizeof(double);
+            size_t biases_size = dst_layer.size * sizeof(number_t);
             size_t weights_size = biases_size * dst_layer.previous_size;
 
-            dst_layer.biases = (double*)std::malloc(biases_size);
-            dst_layer.weights = (double*)std::malloc(weights_size);
+            dst_layer.biases = (number_t*)alloc(biases_size);
+            dst_layer.weights = (number_t*)alloc(weights_size);
 
-            std::memcpy(dst_layer.biases, src_layer.biases, biases_size);
-            std::memcpy(dst_layer.weights, src_layer.weights, weights_size);
+            copy(src_layer.biases, dst_layer.biases, biases_size);
+            copy(src_layer.weights, dst_layer.weights, weights_size);
         }
     }
 
     network::~network() {
         for (layer_t& layer : m_layers) {
-            std::free(layer.biases);
-            std::free(layer.weights);
+            freemem(layer.biases);
+            freemem(layer.weights);
         }
     }
 } // namespace neuralnet
