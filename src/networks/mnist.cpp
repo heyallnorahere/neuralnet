@@ -10,6 +10,8 @@ using number_t = neuralnet::number_t;
 
 static neuralnet::network* create_network(const std::vector<uint64_t>& layer_sizes,
                                           const neuralnet::activation_function_t& function) {
+    ZoneScoped;
+
     std::random_device dev;
     std::mt19937 rng(dev());
     std::uniform_real_distribution<number_t> dist(-1, 1);
@@ -52,6 +54,8 @@ static number_t sigmoid_prime(number_t x) {
 }
 
 static number_t string_to_number(const std::string& string) {
+    ZoneScoped;
+
     switch (sizeof(number_t)) {
     case sizeof(float):
         return (number_t)std::stof(string);
@@ -66,12 +70,15 @@ static number_t string_to_number(const std::string& string) {
 
 static const std::vector<uint64_t> s_layer_sizes = { 2, 2, 2, 2 };
 int main(int argc, const char** argv) {
+    ZoneScoped;
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
     neuralnet::activation_function_t function;
     function.get = sigmoid;
     function.get_derivative = sigmoid_prime;
 
-    auto evaluator = std::unique_ptr<neuralnet::evaluator>(neuralnet::create_cpu_evaluator());
-    auto network = std::unique_ptr<neuralnet::network>(create_network(s_layer_sizes, function));
+    auto evaluator = neuralnet::unique(neuralnet::create_cpu_evaluator());
+    auto network = neuralnet::unique(create_network(s_layer_sizes, function));
 
     int argument_count = argc - 1;
     std::vector<number_t> inputs(argument_count);
@@ -98,6 +105,7 @@ int main(int argc, const char** argv) {
 
     std::vector<number_t> outputs;
     evaluator->retrieve_eval_values(network.get(), eval_output, outputs);
+    evaluator->free_result(eval_key);
 
     for (size_t i = 0; i < outputs.size(); i++) {
         std::cout << "Output " << (i + 1) << ": " << outputs[i] << std::endl;

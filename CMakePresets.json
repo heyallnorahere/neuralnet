@@ -11,14 +11,20 @@
             "binaryDir": "build",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "BUILD_SHARED_LIBS": "OFF"
+                "BUILD_SHARED_LIBS": "OFF",
+
+                "TRACY_ENABLE": "OFF",
+                "TRACY_NO_EXIT": "ON",
+                "TRACY_CALLSTACK": "ON",
+                "TRACY_FIBERS": "ON"
             }
         },
         {
             "name": "debug",
             "inherits": "default",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
+                "CMAKE_BUILD_TYPE": "Debug",
+                "TRACY_ENABLE": "ON"
             }
         }
     ],

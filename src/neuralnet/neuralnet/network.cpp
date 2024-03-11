@@ -1,27 +1,36 @@
 #include "nnpch.h"
 #include "neuralnet/network.h"
+#include "neuralnet/util.h"
 
 namespace neuralnet {
     number_t& network::get_bias_address(layer_t& layer, uint64_t current) {
+        ZoneScoped;
         return layer.biases[current];
     }
 
     number_t network::get_bias(const layer_t& layer, uint64_t current) {
+        ZoneScoped;
         return layer.biases[current];
     }
 
     number_t& network::get_weight_address(layer_t& layer, uint64_t current, uint64_t previous) {
+        ZoneScoped;
+
         // see neuralnet_layer_t::weights in network.h
         uint64_t index = current * layer.previous_size + previous;
         return layer.weights[index];
     }
 
     number_t network::get_weight(const layer_t& layer, uint64_t current, uint64_t previous) {
+        ZoneScoped;
+
         uint64_t index = current * layer.previous_size + previous;
         return layer.weights[index];
     }
 
     void network::copy_layer(const layer_t& layer, layer_t& result) {
+        ZoneScoped;
+
         result.size = layer.size;
         result.previous_size = layer.previous_size;
         result.function = layer.function;
@@ -38,6 +47,7 @@ namespace neuralnet {
 
     network::network(const std::vector<layer_t>& layers,
                      const std::vector<activation_function_t>& activations) {
+        ZoneScoped;
         m_activation_functions = activations;
 
         for (size_t i = 0; i < layers.size(); i++) {
@@ -59,6 +69,8 @@ namespace neuralnet {
     }
 
     network::~network() {
+        ZoneScoped;
+        
         for (layer_t& layer : m_layers) {
             freemem(layer.biases);
             freemem(layer.weights);

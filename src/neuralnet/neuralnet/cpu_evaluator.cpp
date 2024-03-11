@@ -1,5 +1,6 @@
 #include "nnpch.h"
 #include "neuralnet/evaluator.h"
+#include "neuralnet/util.h"
 
 namespace neuralnet {
     enum cpu_result_type { eval, backprop };
@@ -26,10 +27,13 @@ namespace neuralnet {
         virtual ~cpu_evaluator() override = default;
 
         virtual bool is_result_ready(uint64_t result) override {
+            ZoneScoped;
             return m_results.find(result) != m_results.end();
         }
 
         virtual bool free_result(uint64_t result) override {
+            ZoneScoped;
+
             if (!is_result_ready(result)) {
                 return false;
             }
@@ -45,6 +49,8 @@ namespace neuralnet {
 
         virtual std::optional<uint64_t> begin_eval(const network* nn,
                                                    const std::vector<number_t>& inputs) override {
+            ZoneScoped;
+
             const auto& layers = nn->get_layers();
             if (layers.empty() || inputs.size() != layers[0].previous_size) {
                 return {};
@@ -55,6 +61,8 @@ namespace neuralnet {
 
         virtual std::optional<uint64_t> begin_eval(const network* nn,
                                                    void* native_inputs) override {
+            ZoneScoped;
+
             const auto& layers = nn->get_layers();
             if (layers.empty()) {
                 return {};
@@ -71,6 +79,8 @@ namespace neuralnet {
         }
 
         virtual bool get_eval_result(uint64_t result, void** outputs) override {
+            ZoneScoped;
+
             if (!is_result_ready(result)) {
                 return false;
             }
@@ -86,6 +96,8 @@ namespace neuralnet {
 
         virtual void retrieve_eval_values(const network* nn, void* native_outputs,
                                           std::vector<number_t>& outputs) override {
+            ZoneScoped;
+                                        
             const auto& layers = nn->get_layers();
             const auto& output_layer = layers[layers.size() - 1];
 
@@ -98,6 +110,8 @@ namespace neuralnet {
 
         virtual std::optional<uint64_t> begin_backprop(const network* nn,
                                                        const backprop_data_t& data) override {
+            ZoneScoped;
+
             const auto& layers = nn->get_layers();
             if (layers.empty() || data.eval_outputs == nullptr) {
                 return {};
@@ -124,6 +138,8 @@ namespace neuralnet {
         }
 
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override {
+            ZoneScoped;
+
             if (!is_result_ready(result)) {
                 return false;
             }
@@ -146,6 +162,8 @@ namespace neuralnet {
 
     private:
         void eval(number_t* inputs, cpu_result_t& result) {
+            ZoneScoped;
+
             const auto& layers = result.nn->get_layers();
             const auto& functions = result.nn->get_activation_functions();
 
@@ -209,6 +227,8 @@ namespace neuralnet {
         }
 
         void backprop(const cpu_backprop_data_t& data, cpu_result_t& result) {
+            ZoneScoped;
+
             const auto& layers = result.nn->get_layers();
             const auto& functions = result.nn->get_activation_functions();
 

@@ -9,15 +9,14 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <optional>
+#include <memory>
 
 #include <stddef.h>
 
+#include <tracy/Tracy.hpp>
+
 namespace neuralnet {
     using number_t = double;
-
-    inline void* alloc(size_t size) { return std::malloc(size); }
-    inline void freemem(void* block) { std::free(block); }
-    inline void copy(const void* src, void* dst, size_t size) { std::memcpy(dst, src, size); }
 } // namespace neuralnet
 
 // export macro
