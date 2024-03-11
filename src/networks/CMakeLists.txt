@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.21.0)
+find_package(ZLIB REQUIRED)
+
+set(NETWORK_LIBRARIES neuralnet ZLIB::ZLIB)
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+    list(APPEND ${NETWORK_LIBRARIES} pthread stdc++fs)
+endif()
+
+file(GLOB NETWORK_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+foreach(NETWORK_SOURCE ${NETWORK_SOURCES})
+    cmake_path(GET NETWORK_SOURCE FILENAME SOURCE_FILENAME)
+    cmake_path(GET SOURCE_FILENAME STEM NETWORK_NAME)
+    list(APPEND NETWORKS ${NETWORK_NAME})
+
+    add_executable(${NETWORK_NAME} ${NETWORK_SOURCE})
+    target_link_libraries(${NETWORK_NAME} PRIVATE ${NETWORK_LIBRARIES})
+endforeach()
+
+set_target_properties(${NETWORKS} PROPERTIES
+    CXX_STANDARD 17
+    FOLDER "networks")

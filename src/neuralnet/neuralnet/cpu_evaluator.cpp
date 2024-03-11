@@ -160,6 +160,9 @@ namespace neuralnet {
                 auto& layer_activations = activations[i];
                 auto& layer_z = z[i];
 
+                layer_activations.resize(layer.size);
+                layer_z.resize(layer.size);
+
                 number_t* previous_activations = i > 0 ? activations[i - 1].data() : inputs;
                 for (uint64_t c = 0; c < layer.size; c++) {
                     number_t neuron_z = layer.biases[c];

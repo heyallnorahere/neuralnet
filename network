@@ -1,0 +1,15 @@
+#!/bin/bash
+
+SCRIPT_DIR=$(realpath $(dirname $0))
+NETWORK_NAME="$1"
+WORKING_DIRECTORY="$SCRIPT_DIR/data/$NETWORK_NAME"
+EXECUTABLE_PATH="$SCRIPT_DIR/build/src/networks/$NETWORK_NAME"
+
+if [ -z "$NETWORK_NAME" ]; then
+    echo "No network name provided! Exiting..."
+    exit 1
+fi
+
+cd $WORKING_DIRECTORY
+$EXECUTABLE_PATH "${@:2}"
+exit $?
