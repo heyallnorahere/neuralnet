@@ -32,8 +32,11 @@ namespace neuralnet {
 
     class NN_API network {
     public:
-        static number_t* get_bias(layer_t* layer, uint64_t current);
-        static number_t* get_weight(layer_t* layer, uint64_t current, uint64_t previous);
+        static number_t& get_bias_address(layer_t& layer, uint64_t current);
+        static number_t get_bias(const layer_t& layer, uint64_t current);
+        static number_t& get_weight_address(layer_t& layer, uint64_t current, uint64_t previous);
+        static number_t get_weight(const layer_t& layer, uint64_t current, uint64_t previous);
+        static void copy_layer(const layer_t& layer, layer_t& result);
 
         network(const std::vector<layer_t>& layers, const std::vector<activation_function_t>& activations);
         ~network();

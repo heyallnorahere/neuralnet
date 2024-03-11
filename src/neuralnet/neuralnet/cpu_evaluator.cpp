@@ -14,6 +14,11 @@ namespace neuralnet {
         std::vector<void*> results;
     };
 
+    struct cpu_backprop_data_t {
+        const cpu_result_t* eval_result;
+        const backprop_data_t* backprop_input;
+    };
+
     class cpu_evaluator : public evaluator {
     public:
         cpu_evaluator() { m_key = 0; }
@@ -60,8 +65,8 @@ namespace neuralnet {
 
             result.type = cpu_result_type::eval;
             result.nn = nn;
-            eval((number_t*)native_inputs, result);
 
+            eval((number_t*)native_inputs, result);
             return key;
         }
 
@@ -91,12 +96,52 @@ namespace neuralnet {
             copy(layer_data, outputs.data(), output_layer.size * sizeof(number_t));
         }
 
-        virtual std::optional<uint64_t> begin_backprop(const network* nn, void* outputs) override {
-            return {};
+        virtual std::optional<uint64_t> begin_backprop(const network* nn,
+                                                       const backprop_data_t& data) override {
+            const auto& layers = nn->get_layers();
+            if (layers.empty() || data.eval_outputs == nullptr) {
+                return {};
+            }
+
+            auto eval_result = (cpu_result_t*)data.eval_outputs;
+            if (eval_result->type != cpu_result_type::eval ||
+                eval_result->results.size() != layers.size() + 1 || eval_result->nn != nn) {
+                return {};
+            }
+
+            uint64_t key = m_key++;
+            auto& result = m_results[key];
+
+            result.type = cpu_result_type::backprop;
+            result.nn = nn;
+
+            cpu_backprop_data_t backprop_data;
+            backprop_data.backprop_input = &data;
+            backprop_data.eval_result = eval_result;
+
+            backprop(backprop_data, result);
+            return key;
         }
 
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override {
-            return false;
+            if (!is_result_ready(result)) {
+                return false;
+            }
+
+            auto& cpu_result = m_results[result];
+            if (cpu_result.type != cpu_result_type::backprop) {
+                return false;
+            }
+
+            deltas.resize(cpu_result.results.size());
+            for (size_t i = 0; i < deltas.size(); i++) {
+                auto& src_layer = *(layer_t*)cpu_result.results[i];
+                auto& dst_layer = deltas[i];
+
+                network::copy_layer(src_layer, dst_layer);
+            }
+
+            return true;
         }
 
     private:
@@ -116,14 +161,11 @@ namespace neuralnet {
                 auto& layer_z = z[i];
 
                 number_t* previous_activations = i > 0 ? activations[i - 1].data() : inputs;
-                for (size_t c = 0; c < layer.size; c++) {
+                for (uint64_t c = 0; c < layer.size; c++) {
                     number_t neuron_z = layer.biases[c];
 
-                    for (size_t p = 0; p < layer.previous_size; p++) {
-                        // see neuralnet_layer_t::weights in network.h
-                        uint64_t weight_index = c * layer.previous_size + p;
-
-                        number_t weight = layer.weights[weight_index];
+                    for (uint64_t p = 0; p < layer.previous_size; p++) {
+                        number_t weight = network::get_weight(layer, c, p);
                         number_t previous_activation = previous_activations[p];
 
                         neuron_z = weight * previous_activation;
@@ -157,9 +199,64 @@ namespace neuralnet {
 
                 // see cpu_result_t::results
                 copy(activations[layer_index].data(), layer_data, layer_size);
-                copy(z[layer_index].data(), layer_data + layer_size, layer_size);
+                copy(z[layer_index].data(), (void*)((size_t)layer_data + layer_size), layer_size);
 
                 result.results[i] = layer_data;
+            }
+        }
+
+        void backprop(const cpu_backprop_data_t& data, cpu_result_t& result) {
+            const auto& layers = result.nn->get_layers();
+            const auto& functions = result.nn->get_activation_functions();
+
+            result.results.resize(layers.size());
+            for (size_t i = layers.size() - 1; i >= 0; i--) {
+                const auto& layer = layers[i];
+                const auto& function = functions[layer.function];
+
+                auto delta = (layer_t*)alloc(sizeof(layer_t));
+                delta->size = layer.size;
+                delta->previous_size = layer.previous_size;
+
+                size_t bias_buffer_size = delta->size * sizeof(number_t);
+                delta->biases = (number_t*)alloc(bias_buffer_size);
+                delta->weights = (number_t*)alloc(bias_buffer_size * delta->previous_size);
+
+                auto layer_data = (number_t*)data.eval_result->results[i + 1];
+                auto previous_layer_data = (number_t*)data.eval_result->results[i];
+
+                for (uint64_t c = 0; c < layer.size; c++) {
+                    number_t z = layer_data[layer.size + c];
+
+                    number_t dC_da;
+                    if (i == layers.size() - 1) {
+                        dC_da = data.backprop_input->cost_derivative(
+                            data.backprop_input->expected_outputs[c], layer_data[c]);
+                    } else {
+                        dC_da = 0;
+
+                        size_t next_layer_index = i + 1;
+                        const auto& next_layer = layers[next_layer_index];
+                        const auto& next_delta = *(const layer_t*)result.results[next_layer_index];
+
+                        for (size_t n = 0; n < next_layer.size; n++) {
+                            number_t weight = network::get_weight(next_layer, n, c);
+                            number_t dC_db_n = network::get_bias(next_delta, n);
+
+                            dC_da += weight * dC_db_n;
+                        }
+                    }
+
+                    number_t dC_dz = dC_da * function.get_derivative(z);
+                    network::get_bias_address(*delta, c) = dC_dz * 1; // dz/db
+
+                    for (uint64_t p = 0; p < layer.previous_size; p++) {
+                        number_t previous_activation = previous_layer_data[p];
+                        network::get_weight_address(*delta, c, p) = dC_dz * previous_activation;
+                    }
+                }
+
+                result.results[i] = delta;
             }
         }
 

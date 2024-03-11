@@ -2,6 +2,12 @@
 #include "neuralnet/network.h"
 
 namespace neuralnet {
+    struct backprop_data_t {
+        void* eval_outputs;
+        std::vector<number_t> expected_outputs;
+        number_t(*cost_derivative)(number_t x, number_t y);
+    };
+
     class NN_API evaluator {
     public:
         virtual ~evaluator() = default;
@@ -29,7 +35,7 @@ namespace neuralnet {
 
         // begins performing backpropagation on the provided neural network, given previous
         // evaluation results
-        virtual std::optional<uint64_t> begin_backprop(const network* nn, void* outputs) = 0;
+        virtual std::optional<uint64_t> begin_backprop(const network* nn, const backprop_data_t& data) = 0;
 
         // retrieves deltas computed via gradient descent during backprop with the given key
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) = 0;
