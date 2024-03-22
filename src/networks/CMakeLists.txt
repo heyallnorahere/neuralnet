@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.21.0)
-find_package(ZLIB REQUIRED)
 
-set(NETWORK_LIBRARIES neuralnet ZLIB::ZLIB)
+set(NETWORK_LIBRARIES neuralnet)
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     list(APPEND ${NETWORK_LIBRARIES} pthread stdc++fs)
 endif()
