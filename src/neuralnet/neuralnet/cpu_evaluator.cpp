@@ -40,6 +40,14 @@ namespace neuralnet {
 
             auto& data = m_results[result];
             for (void* ptr : data.results) {
+                switch (data.type) {
+                case cpu_result_type::backprop: {
+                    layer_t* delta = (layer_t*)ptr;
+                    freemem(delta->weights);
+                    freemem(delta->biases);
+                } break;
+                }
+
                 freemem(ptr);
             }
 

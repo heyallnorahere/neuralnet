@@ -249,6 +249,8 @@ namespace neuralnet {
                     }
                 }
             }
+
+            m_evaluator->free_result(backprop_key);
         }
 
         m_current_eval_keys.clear();
