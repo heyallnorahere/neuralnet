@@ -35,11 +35,18 @@ namespace neuralnet {
 
         // begins performing backpropagation on the provided neural network, given previous
         // evaluation results
+        // if asynchronous, the implementation must NOT reference the output from get_eval_result
+        // during evaluation
         virtual std::optional<uint64_t> begin_backprop(const network* nn,
                                                        const backprop_data_t& data) = 0;
 
         // retrieves deltas computed via gradient descent during backprop with the given key
+        // evaluator should own layer memory
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) = 0;
+
+        // for asynchronous evaluators, begins evaluation
+        // for synchronous evaluators, does nothing
+        virtual void flush() = 0;
     };
 
     NN_API evaluator* create_cpu_evaluator();

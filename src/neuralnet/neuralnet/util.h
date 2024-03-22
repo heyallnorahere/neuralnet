@@ -1,23 +1,31 @@
 #pragma once
 
-void* operator new(size_t size);
-void operator delete(void* block);
+NN_API void* operator new(size_t size);
+NN_API void operator delete(void* block);
 
 namespace neuralnet {
     template <typename _Ty>
-    struct nn_delete {
-        inline void operator()(_Ty* block) const { delete block; }
-    };
-
-    template <typename _Ty>
-    using unique_ptr = std::unique_ptr<_Ty, nn_delete<_Ty>>;
-
-    template <typename _Ty>
-    inline unique_ptr<_Ty> unique(_Ty* block) {
-        return unique_ptr<_Ty>(block);
+    inline std::unique_ptr<_Ty> unique(_Ty* block) {
+        return std::unique_ptr<_Ty>(block);
     }
 
-    void* alloc(size_t size);
-    void freemem(void* block);
-    void copy(const void* src, void* dst, size_t size);
+    NN_API void* alloc(size_t size);
+    NN_API void freemem(void* block);
+    NN_API void copy(const void* src, void* dst, size_t size);
+
+    namespace random {
+        NN_API std::mt19937_64& rng();
+
+        template <typename _Ty>
+        inline std::enable_if_t<std::is_floating_point_v<_Ty>, _Ty> next(_Ty min, _Ty max) {
+            std::uniform_real_distribution<_Ty> dist(min, max);
+            return dist(rng());
+        }
+
+        template <typename _Ty>
+        inline std::enable_if_t<std::is_integral_v<_Ty>, _Ty> next(_Ty min, _Ty max) {
+            std::uniform_int_distribution<_Ty> dist(min, max);
+            return dist(rng());
+        }
+    } // namespace random
 } // namespace neuralnet

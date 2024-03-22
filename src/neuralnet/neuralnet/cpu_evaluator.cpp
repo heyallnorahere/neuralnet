@@ -97,7 +97,7 @@ namespace neuralnet {
         virtual void retrieve_eval_values(const network* nn, void* native_outputs,
                                           std::vector<number_t>& outputs) override {
             ZoneScoped;
-                                        
+
             const auto& layers = nn->get_layers();
             const auto& output_layer = layers[layers.size() - 1];
 
@@ -151,14 +151,13 @@ namespace neuralnet {
 
             deltas.resize(cpu_result.results.size());
             for (size_t i = 0; i < deltas.size(); i++) {
-                auto& src_layer = *(layer_t*)cpu_result.results[i];
-                auto& dst_layer = deltas[i];
-
-                network::copy_layer(src_layer, dst_layer);
+                deltas[i] = *(layer_t*)cpu_result.results[i];
             }
 
             return true;
         }
+
+        virtual void flush() override {}
 
     private:
         void eval(number_t* inputs, cpu_result_t& result) {
@@ -233,7 +232,7 @@ namespace neuralnet {
             const auto& functions = result.nn->get_activation_functions();
 
             result.results.resize(layers.size());
-            for (size_t i = layers.size() - 1; i >= 0; i--) {
+            for (int64_t i = layers.size() - 1; i >= 0; i--) {
                 const auto& layer = layers[i];
                 const auto& function = functions[layer.function];
 

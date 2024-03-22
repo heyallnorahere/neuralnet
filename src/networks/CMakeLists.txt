@@ -17,5 +17,5 @@ foreach(NETWORK_SOURCE ${NETWORK_SOURCES})
 endforeach()
 
 set_target_properties(${NETWORKS} PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     FOLDER "networks")

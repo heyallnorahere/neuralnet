@@ -4,26 +4,20 @@
 
 namespace neuralnet {
     number_t& network::get_bias_address(layer_t& layer, uint64_t current) {
-        ZoneScoped;
         return layer.biases[current];
     }
 
     number_t network::get_bias(const layer_t& layer, uint64_t current) {
-        ZoneScoped;
         return layer.biases[current];
     }
 
     number_t& network::get_weight_address(layer_t& layer, uint64_t current, uint64_t previous) {
-        ZoneScoped;
-
         // see neuralnet_layer_t::weights in network.h
         uint64_t index = current * layer.previous_size + previous;
         return layer.weights[index];
     }
 
     number_t network::get_weight(const layer_t& layer, uint64_t current, uint64_t previous) {
-        ZoneScoped;
-
         uint64_t index = current * layer.previous_size + previous;
         return layer.weights[index];
     }
@@ -70,7 +64,7 @@ namespace neuralnet {
 
     network::~network() {
         ZoneScoped;
-        
+
         for (layer_t& layer : m_layers) {
             freemem(layer.biases);
             freemem(layer.weights);

@@ -8,8 +8,19 @@
 #include <filesystem>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <optional>
 #include <memory>
+#include <random>
+#include <type_traits>
+#include <iostream>
+
+#if __has_include(<filesystem>)
+#include <filesystem>
+#define NN_FS_INCLUDE_EXISTS
+#else
+#include <experimental/filesystem>
+#endif
 
 #include <stddef.h>
 
@@ -17,6 +28,12 @@
 
 namespace neuralnet {
     using number_t = double;
+
+#ifdef NN_FS_INCLUDE_EXISTS
+    namespace fs = std::filesystem;
+#else
+    namespace fs = std::experimental::filesystem;
+#endif
 } // namespace neuralnet
 
 // export macro
