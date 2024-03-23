@@ -17,10 +17,24 @@ namespace neuralnet {
     void copy(const void* src, void* dst, size_t size) { std::memcpy(dst, src, size); }
 
     namespace random {
-        static std::random_device s_dev;
-        static std::mt19937_64 s_rng;
+        class generator {
+        public:
+            generator() {
+                m_rng.seed(m_device());
+            }
 
-        std::mt19937_64& rng() { return s_rng; }
+            generator(const generator&) = delete;
+            generator& operator=(const generator&) = delete;
+
+            std::mt19937_64& get_rng() { return m_rng; }
+
+        private:
+            std::random_device m_device;
+            std::mt19937_64 m_rng;
+        };
+
+        static generator s_rng;
+        std::mt19937_64& rng() { return s_rng.get_rng(); }
     } // namespace random
 } // namespace neuralnet
 

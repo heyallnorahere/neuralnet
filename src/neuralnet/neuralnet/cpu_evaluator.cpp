@@ -20,6 +20,35 @@ namespace neuralnet {
         const backprop_data_t* backprop_input;
     };
 
+    static number_t sigmoid(number_t x) { return 1 / (1 + std::exp(-x)); }
+    static number_t dsigmoid_dx(number_t x) {
+        number_t sig = sigmoid(x);
+        return sig * (1 - sig);
+    }
+
+    static number_t C(number_t x, number_t y) { return std::pow(x - y, 2); }
+    static number_t dC_dx(number_t x, number_t y) { return 2 * (x - y); }
+
+    static number_t A(activation_function func, number_t x) {
+        switch (func) {
+        case activation_function::sigmoid:
+            return sigmoid(x);
+        default:
+            throw std::runtime_error("invalid activation function!");
+            return 0;
+        }
+    }
+
+    static number_t dA_dz(activation_function func, number_t x) {
+        switch (func) {
+        case activation_function::sigmoid:
+            return dsigmoid_dx(x);
+        default:
+            throw std::runtime_error("invalid activation function!");
+            return 0;
+        }
+    }
+
     class cpu_evaluator : public evaluator {
     public:
         cpu_evaluator() { m_key = 0; }
@@ -41,14 +70,13 @@ namespace neuralnet {
             auto& data = m_results[result];
             for (void* ptr : data.results) {
                 switch (data.type) {
-                case cpu_result_type::backprop: {
-                    layer_t* delta = (layer_t*)ptr;
-                    freemem(delta->weights);
-                    freemem(delta->biases);
-                } break;
+                case cpu_result_type::backprop:
+                    delete (layer_t*)ptr;
+                    break;
+                default:
+                    freemem(ptr);
+                    break;
                 }
-
-                freemem(ptr);
             }
 
             m_results.erase(result);
@@ -167,12 +195,12 @@ namespace neuralnet {
 
         virtual void flush() override {}
 
+        virtual number_t cost_function(number_t actual, number_t expected) override { return C(actual, expected); }
+
     private:
         void eval(number_t* inputs, cpu_result_t& result) {
             ZoneScoped;
-
             const auto& layers = result.nn->get_layers();
-            const auto& functions = result.nn->get_activation_functions();
 
             std::vector<std::vector<number_t>> activations, z;
             activations.resize(layers.size());
@@ -180,7 +208,6 @@ namespace neuralnet {
 
             for (size_t i = 0; i < layers.size(); i++) {
                 const auto& layer = layers[i];
-                const auto& function = functions[layer.function];
 
                 auto& layer_activations = activations[i];
                 auto& layer_z = z[i];
@@ -200,7 +227,7 @@ namespace neuralnet {
                     }
 
                     layer_z[c] = neuron_z;
-                    layer_activations[c] = function.get(neuron_z);
+                    layer_activations[c] = A(layer.function, neuron_z);
                 }
             }
 
@@ -237,20 +264,16 @@ namespace neuralnet {
             ZoneScoped;
 
             const auto& layers = result.nn->get_layers();
-            const auto& functions = result.nn->get_activation_functions();
-
             result.results.resize(layers.size());
+
             for (int64_t i = layers.size() - 1; i >= 0; i--) {
                 const auto& layer = layers[i];
-                const auto& function = functions[layer.function];
 
-                auto delta = (layer_t*)alloc(sizeof(layer_t));
+                auto delta = new layer_t;
                 delta->size = layer.size;
                 delta->previous_size = layer.previous_size;
-
-                size_t bias_buffer_size = delta->size * sizeof(number_t);
-                delta->biases = (number_t*)alloc(bias_buffer_size);
-                delta->weights = (number_t*)alloc(bias_buffer_size * delta->previous_size);
+                delta->biases.resize(delta->size);
+                delta->weights.resize(delta->size * delta->previous_size);
 
                 auto layer_data = (number_t*)data.eval_result->results[i + 1];
                 auto previous_layer_data = (number_t*)data.eval_result->results[i];
@@ -260,8 +283,7 @@ namespace neuralnet {
 
                     number_t dC_da;
                     if (i == layers.size() - 1) {
-                        dC_da = data.backprop_input->cost_derivative(
-                            data.backprop_input->expected_outputs[c], layer_data[c]);
+                        dC_da = dC_dx(data.backprop_input->expected_outputs[c], layer_data[c]);
                     } else {
                         dC_da = 0;
 
@@ -277,7 +299,7 @@ namespace neuralnet {
                         }
                     }
 
-                    number_t dC_dz = dC_da * function.get_derivative(z);
+                    number_t dC_dz = dC_da * dA_dz(layer.function, z);
                     network::get_bias_address(*delta, c) = dC_dz * 1; // dz/db
 
                     for (uint64_t p = 0; p < layer.previous_size; p++) {

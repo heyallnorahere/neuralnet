@@ -3,56 +3,11 @@
 #include <random>
 #include <thread>
 #include <chrono>
-#include <bit>
 #include <limits>
 
 #include <neuralnet.h>
-#include <zlib.h>
+#include <neuralnet/compression.h>
 using number_t = neuralnet::number_t;
-
-class decompressor {
-public:
-    decompressor(const neuralnet::fs::path& path) {
-        ZoneScoped;
-        m_file = gzopen64(path.string().c_str(), "rb");
-    }
-
-    ~decompressor() {
-        ZoneScoped;
-        gzclose(m_file);
-    }
-
-    off64_t get_position() const {
-        ZoneScoped;
-        return gztell64(m_file);
-    }
-
-    int32_t read(void* buffer, uint32_t buffer_size) {
-        ZoneScoped;
-        return (int32_t)gzread(m_file, buffer, (unsigned)buffer_size);
-    }
-
-    decompressor(const decompressor&) = delete;
-    decompressor& operator=(const decompressor&) = delete;
-
-private:
-    gzFile m_file;
-};
-
-template <std::endian E, typename T>
-static void read_with_endianness(const void* data, T& result) {
-    ZoneScoped;
-    if constexpr (std::endian::native == E) {
-        neuralnet::copy(data, &result, sizeof(T));
-    } else {
-        const uint8_t* first = (const uint8_t*)(const void*)data;
-        uint8_t* result_last = (uint8_t*)((size_t)&result + sizeof(T));
-        
-        for (size_t i = 0; i < sizeof(T); i++) {
-            *(--result_last) = *(first++);
-        }
-    }
-}
 
 struct group_paths_t {
     neuralnet::fs::path images, labels;
@@ -66,14 +21,14 @@ class mnist_dataset : public neuralnet::dataset {
 public:
     static constexpr uint64_t output_count = 10;
 
-    static uint32_t read_uint32_big_endian(decompressor& src, void* buffer) {
+    static uint32_t read_uint32_big_endian(neuralnet::file_decompressor& src, void* buffer) {
         ZoneScoped;
         if (src.read(buffer, sizeof(uint32_t)) < sizeof(uint32_t)) {
             return 0;
         }
 
         uint32_t result;
-        read_with_endianness<std::endian::big>(buffer, result);
+        neuralnet::read_with_endianness<std::endian::big>(buffer, result);
 
         return result;
     }
@@ -147,8 +102,8 @@ private:
     void load_mnist_group(const group_paths_t& paths, std::vector<mnist_sample_t>& samples) {
         ZoneScoped;
 
-        decompressor images_file(paths.images);
-        decompressor labels_file(paths.labels);
+        neuralnet::file_decompressor images_file(paths.images);
+        neuralnet::file_decompressor labels_file(paths.labels);
         uint8_t int_buffer[sizeof(uint32_t)];
 
         // see mnist manual
@@ -222,45 +177,6 @@ private:
     uint64_t m_input_count;
 };
 
-static neuralnet::network* create_network(const std::vector<uint64_t>& layer_sizes,
-                                          const neuralnet::activation_function_t& function) {
-    ZoneScoped;
-
-    static constexpr number_t min = -1;
-    static constexpr number_t max = 1;
-
-    std::vector<neuralnet::layer_t> layers;
-    for (size_t i = 0; i < layer_sizes.size() - 1; i++) {
-        auto& layer = layers.emplace_back();
-        layer.size = layer_sizes[i + 1];
-        layer.previous_size = layer_sizes[i];
-        layer.function = 0;
-
-        size_t biases_size = layer.size * sizeof(number_t);
-        size_t weights_size = biases_size * layer.previous_size;
-
-        layer.biases = (number_t*)neuralnet::alloc(biases_size);
-        layer.weights = (number_t*)neuralnet::alloc(weights_size);
-
-        for (size_t c = 0; c < layer.size; c++) {
-            neuralnet::network::get_bias_address(layer, c) = neuralnet::random::next(min, max);
-
-            for (size_t p = 0; p < layer.previous_size; p++) {
-                neuralnet::network::get_weight_address(layer, c, p) =
-                    neuralnet::random::next<number_t>(min, max);
-            }
-        }
-    }
-
-    auto network = new neuralnet::network(layers, { function });
-    for (const auto& layer : layers) {
-        neuralnet::freemem(layer.weights);
-        neuralnet::freemem(layer.biases);
-    }
-
-    return network;
-}
-
 static number_t string_to_number(const std::string& string) {
     ZoneScoped;
 
@@ -276,41 +192,34 @@ static number_t string_to_number(const std::string& string) {
     return 0;
 }
 
-static number_t sigmoid(number_t x) { return 1 / (1 + std::exp(-x)); }
-static number_t dsigmoid_dx(number_t x) {
-    number_t sig = sigmoid(x);
-    return sig * (1 - sig);
-}
-
-static number_t C(number_t x, number_t y) { return std::pow(x - y, 2); }
-static number_t dC_dx(number_t x, number_t y) { return 2 * (x - y); }
-
 int main(int argc, const char** argv) {
     ZoneScoped;
 
-    neuralnet::activation_function_t function;
-    function.get = sigmoid;
-    function.get_derivative = dsigmoid_dx;
-
     neuralnet::trainer_settings_t settings;
     settings.batch_size = 100;
-    settings.cost = C;
-    settings.cost_derivative = dC_dx;
     settings.eval_batch_size = 100;
     settings.learning_rate = 0.1;
-    settings.minimum_average_cost = 0.02;
+    settings.minimum_average_cost = 1;
 
     auto evaluator = neuralnet::unique(neuralnet::create_cpu_evaluator());
     auto dataset = neuralnet::unique(new mnist_dataset);
 
-    std::vector<uint64_t> layer_sizes = {
-        dataset->get_input_count(),
-        128,
-        64,
-        dataset->get_output_count()
-    };
+    std::unique_ptr<neuralnet::network> network;
+    neuralnet::loader loader(neuralnet::fs::current_path() / "network");
+    if (loader.load_from_file()) {
+        network = neuralnet::unique(loader.release_network());
+    } else {
+        static const std::vector<uint64_t> layer_sizes = { dataset->get_input_count(), 128, 64,
+                                                           dataset->get_output_count() };
 
-    auto network = neuralnet::unique(create_network(layer_sizes, function));
+        network = neuralnet::unique(
+            neuralnet::network::randomize(layer_sizes, neuralnet::activation_function::sigmoid));
+
+        loader.load_from_memory(network.get());
+        loader.save_to_file();
+        loader.release_network();
+    }
+
     auto trainer = neuralnet::unique(
         new neuralnet::trainer(network.get(), evaluator.get(), dataset.get(), settings));
 
@@ -318,6 +227,10 @@ int main(int argc, const char** argv) {
     while (trainer->is_running()) {
         trainer->update();
     }
+
+    loader.load_from_memory(network.get());
+    loader.save_to_file();
+    loader.release_network();
 
     return 0;
 }

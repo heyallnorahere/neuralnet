@@ -7,9 +7,6 @@ namespace neuralnet {
         uint64_t batch_size, eval_batch_size;
         number_t learning_rate;
         number_t minimum_average_cost;
-
-        number_t (*cost)(number_t x, number_t y);
-        number_t (*cost_derivative)(number_t x, number_t y);
     };
 
     enum class dataset_group { training, testing, evaluation };

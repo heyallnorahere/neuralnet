@@ -192,7 +192,6 @@ namespace neuralnet {
             }
 
             backprop_data_t data;
-            data.cost_derivative = m_current_settings.cost_derivative;
             data.expected_outputs = m_sample_map[eval_key];
 
             if (!m_evaluator->get_eval_result(eval_key, &data.eval_outputs)) {
@@ -325,7 +324,7 @@ namespace neuralnet {
 
             const auto& expected_outputs = m_sample_map[key];
             for (size_t i = 0; i < outputs.size(); i++) {
-                number_t cost = m_current_settings.cost(outputs[i], expected_outputs[i]);
+                number_t cost = m_evaluator->cost_function(outputs[i], expected_outputs[i]);
                 costs.push_back(cost);
             }
 

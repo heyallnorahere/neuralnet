@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21.0)
 
 set(NN_DEFS PUBLIC $<$<CONFIG:Debug>:NN_DEBUG>)
-set(NN_LIBRARIES Tracy::TracyClient)
+set(NN_LIBRARIES Tracy::TracyClient nlohmann_json)
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     list(APPEND NN_LIBRARIES pthread stdc++fs)

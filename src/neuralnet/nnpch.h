@@ -5,7 +5,6 @@
 #include <string>
 #include <cstdint>
 #include <cstring>
-#include <filesystem>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -14,6 +13,9 @@
 #include <random>
 #include <type_traits>
 #include <iostream>
+#include <bit>
+#include <fstream>
+#include <sstream>
 
 #if __has_include(<filesystem>)
 #include <filesystem>

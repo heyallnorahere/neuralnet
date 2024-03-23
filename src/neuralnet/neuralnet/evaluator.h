@@ -5,7 +5,6 @@ namespace neuralnet {
     struct backprop_data_t {
         void* eval_outputs;
         std::vector<number_t> expected_outputs;
-        number_t (*cost_derivative)(number_t x, number_t y);
     };
 
     class NN_API evaluator {
@@ -47,6 +46,9 @@ namespace neuralnet {
         // for asynchronous evaluators, begins evaluation
         // for synchronous evaluators, does nothing
         virtual void flush() = 0;
+
+        // cost function for training
+        virtual number_t cost_function(number_t actual, number_t expected) = 0;
     };
 
     NN_API evaluator* create_cpu_evaluator();
