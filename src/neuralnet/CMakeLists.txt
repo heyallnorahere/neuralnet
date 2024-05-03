@@ -25,6 +25,10 @@ foreach(EVALUATOR_NAME ${NN_EVALUATORS})
     list(APPEND NN_DEFS PUBLIC NN_SUPPORT_${EVALUATOR_NAME})
 endforeach()
 
+if(NN_SUPPORT_VULKAN)
+    list(APPEND NN_LIBRARIES volk vma)
+endif()
+
 add_library(neuralnet STATIC ${NN_SOURCE})
 
 target_link_libraries(neuralnet PUBLIC ${NN_LIBRARIES})

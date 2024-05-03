@@ -8,6 +8,13 @@ set(VULKAN_AVAILABLE ${VULKAN_UNSUPPORTED_PLATFORMS} LESS 0)
 
 include(CMakeDependentOption)
 
+if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
+    set(NN_IS_ROOT ON)
+endif()
+
+option(NN_BUILD_NETWORKS "Build example network programs" ${NN_IS_ROOT})
+cmake_dependent_option(NN_BUILD_VULKAN "Build Vulkan headers & meta-loader. If NN_SUPPORT_VULKAN is enabled, and NN_BUILD_VULKAN is disabled, adding CMake targets for each library is required to build" ON "NOT NN_BUILD_NETWORKS" ON)
+
 option(NN_SUPPORT_CPU "Support CPU evaluation & training" ON)
 cmake_dependent_option(NN_SUPPORT_VULKAN "Support Vulkan compute shader evaluation & training" ON "VULKAN_AVAILABLE" OFF)
 

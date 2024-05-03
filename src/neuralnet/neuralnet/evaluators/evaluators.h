@@ -1,6 +1,11 @@
 #pragma once
 #include "neuralnet/evaluator.h"
 
+#ifdef NN_SUPPORT_vulkan
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+#endif
+
 namespace neuralnet::evaluators {
 #ifdef NN_SUPPORT_cpu
     enum cpu_result_type { eval, backprop };
@@ -35,7 +40,7 @@ namespace neuralnet::evaluators {
 
         virtual std::optional<uint64_t> begin_backprop(const network* nn,
                                                        const backprop_data_t& data) override;
-        
+
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override;
 
         virtual void flush() override;
@@ -47,6 +52,41 @@ namespace neuralnet::evaluators {
 
         uint64_t m_key;
         std::unordered_map<uint64_t, cpu_result_t> m_results;
+    };
+#endif
+
+#ifdef NN_SUPPORT_vulkan
+#define NN_DECLARE_VK_FUNCTION(name) PFN_##name name
+
+    struct vulkan_vtable_t {
+        vulkan_vtable_t() { std::memset(this, 0, sizeof(vulkan_vtable_t)); }
+
+        NN_DECLARE_VK_FUNCTION(vkGetInstanceProcAddr);
+        NN_DECLARE_VK_FUNCTION(vkGetDeviceProcAddr);
+
+    };
+
+    struct vulkan_handles_t {
+        bool use_provided_handles;
+
+        VkInstance instance;
+        VkPhysicalDevice physical_device;
+        VkDevice device;
+
+        uint32_t compute_queue_index;
+        std::unordered_set<uint32_t> shared_queue_indices;
+    };
+
+    struct vulkan_context_t {
+        vulkan_vtable_t vtable;
+        vulkan_handles_t handles;
+    };
+
+    class NN_API vulkan_evaluator : public evaluator {
+    public:
+        static void set_next_context(const vulkan_context_t& context);
+
+        
     };
 #endif
 
