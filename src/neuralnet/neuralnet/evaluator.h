@@ -50,6 +50,4 @@ namespace neuralnet {
         // cost function for training
         virtual number_t cost_function(number_t actual, number_t expected) = 0;
     };
-
-    NN_API evaluator* create_cpu_evaluator();
 } // namespace neuralnet

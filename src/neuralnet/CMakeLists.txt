@@ -17,6 +17,14 @@ else()
 endif()
 
 file(GLOB_RECURSE NN_SOURCE CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+file(GLOB NN_ALL_EVALUATORS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/neuralnet/evaluators/*_evaluator.cpp")
+list(REMOVE_ITEM NN_SOURCE ${NN_ALL_EVALUATORS})
+
+foreach(EVALUATOR_NAME ${NN_EVALUATORS})
+    list(APPEND NN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/neuralnet/evaluators/${EVALUATOR_NAME}_evaluator.cpp")
+    list(APPEND NN_DEFS PUBLIC NN_SUPPORT_${EVALUATOR_NAME})
+endforeach()
+
 add_library(neuralnet STATIC ${NN_SOURCE})
 
 target_link_libraries(neuralnet PUBLIC ${NN_LIBRARIES})

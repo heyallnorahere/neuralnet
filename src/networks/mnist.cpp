@@ -201,11 +201,17 @@ int main(int argc, const char** argv) {
     settings.learning_rate = 0.1;
     settings.minimum_average_cost = 1;
 
-    auto evaluator = neuralnet::unique(neuralnet::create_cpu_evaluator());
+    auto evaluator = neuralnet::evaluators::choose_evaluator();
     auto dataset = neuralnet::unique(new mnist_dataset);
+
+    if (!evaluator) {
+        std::cerr << "no evaluator available!" << std::endl;
+        return 1;
+    }
 
     std::unique_ptr<neuralnet::network> network;
     neuralnet::loader loader(neuralnet::fs::current_path() / "network");
+    
     if (loader.load_from_file()) {
         network = neuralnet::unique(loader.release_network());
     } else {
