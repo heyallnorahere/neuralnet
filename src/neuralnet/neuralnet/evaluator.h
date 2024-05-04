@@ -7,6 +7,12 @@ namespace neuralnet {
         std::vector<number_t> expected_outputs;
     };
 
+    enum class evaluator_type {
+        cpu,
+        vulkan,
+        other
+    };
+
     class NN_API evaluator {
     public:
         virtual ~evaluator() = default;
