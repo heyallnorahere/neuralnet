@@ -5,11 +5,6 @@
 namespace neuralnet::evaluators {
     static std::unique_ptr<vulkan_context_t> s_next_context;
 
-    static bool is_vtable_valid(const vulkan_vtable_t& vtable) {
-        ZoneScoped;
-        return vtable.vkGetInstanceProcAddr != nullptr;
-    }
-
     void vulkan_evaluator::set_next_context(std::unique_ptr<vulkan_context_t>&& context) {
         ZoneScoped;
         s_next_context = std::move(context);
@@ -21,7 +16,16 @@ namespace neuralnet::evaluators {
             return false;
         }
 
-        return is_vtable_valid(s_next_context->vtable);
+        if (s_next_context->vtable.vkGetInstanceProcAddr == nullptr) {
+            return false;
+        }
+
+        if (s_next_context->handles.context_provided &&
+            s_next_context->handles.vulkan_version == 0) {
+            return false;
+        }
+
+        return true;
     }
 
 #define NN_LOAD_VK_GLOBAL(vtable, name)                                                            \
@@ -73,8 +77,55 @@ namespace neuralnet::evaluators {
 
     static void create_instance(vulkan_context_t* context) {
         ZoneScoped;
+        const auto& v = context->vtable;
 
-        // todo: create instance
+        static const std::unordered_set<std::string> requested_extensions = {
+            "VK_KHR_get_physical_device_properties2",
+#ifdef NN_DEBUG
+            "VK_EXT_debug_utils",
+#endif
+        };
+
+        static const std::unordered_set<std::string> requested_layers = {
+#ifdef NN_DEBUG
+            "VK_LAYER_KHRONOS_validation"
+#endif
+        };
+
+        uint32_t extension_count, layer_count;
+        v.check_result(
+            v.vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr));
+        v.check_result(v.vkEnumerateInstanceLayerProperties(&layer_count, nullptr));
+
+        std::vector<VkExtensionProperties> extensions(extension_count);
+        std::vector<VkLayerProperties> layers(layer_count);
+
+        v.vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, extensions.data());
+        v.vkEnumerateInstanceLayerProperties(&layer_count, layers.data());
+
+        std::vector<const char*> used_extensions, used_layers;
+        for (const auto& extension : extensions) {
+            if (requested_extensions.find(extension.extensionName) == requested_extensions.end()) {
+                continue;
+            }
+
+            used_extensions.push_back(extension.extensionName);
+        }
+
+        
+
+        VkApplicationInfo app_info{};
+        app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        app_info.apiVersion = context->handles.vulkan_version;
+        app_info.engineVersion = app_info.applicationVersion = VK_MAKE_API_VERSION(0, 1, 0, 0);
+        app_info.pEngineName = app_info.pApplicationName = "Application using neuralnet";
+
+        VkInstanceCreateInfo create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        create_info.pApplicationInfo = &app_info;
+
+        // todo: is this necessary?
+        create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     }
 
     static void create_debug_messenger(vulkan_context_t* context) {
@@ -100,6 +151,11 @@ namespace neuralnet::evaluators {
 
         vtable_load_globals(context->vtable);
         if (!context->handles.context_provided) {
+            if (context->handles.vulkan_version == 0) {
+                // don't need any higher version than 1.0
+                context->handles.vulkan_version = VK_VERSION_1_0;
+            }
+
             create_instance(context);
         }
 

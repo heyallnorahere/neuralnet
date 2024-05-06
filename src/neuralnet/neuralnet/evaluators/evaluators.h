@@ -2,14 +2,12 @@
 #include "neuralnet/evaluator.h"
 
 #ifdef NN_SUPPORT_vulkan
-#ifndef VULKAN_H_
 #define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
-#endif
+#define TRACY_VK_USE_SYMBOL_TABLE
 
-#ifndef AMD_VULKAN_MEMORY_ALLOCATOR_H
+#include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
-#endif
+#include <tracy/TracyVulkan.hpp>
 
 #define NN_DECLARE_VK_FUNCTION(name) PFN_##name name
 #endif
@@ -127,15 +125,22 @@ namespace neuralnet::evaluators {
     };
 
     struct vulkan_handles_t {
-        vulkan_handles_t() { context_provided = false; }
+        vulkan_handles_t() {
+            vulkan_version = 0;
+            context_provided = false;
+            profiler_context = nullptr;
+        }
 
         bool context_provided;
+        uint32_t vulkan_version;
 
         VkInstance instance;
         VkDebugUtilsMessengerEXT debug_messenger;
         VkPhysicalDevice physical_device;
         VkDevice device;
         VmaAllocator allocator;
+
+        TracyVkCtx profiler_context;
 
         uint32_t compute_queue_index;
         std::unordered_set<uint32_t> shared_queue_indices;
