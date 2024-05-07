@@ -201,7 +201,7 @@ int main(int argc, const char** argv) {
     settings.learning_rate = 0.1;
     settings.minimum_average_cost = 1;
 
-    auto evaluator = neuralnet::evaluators::choose_evaluator();
+    auto evaluator = neuralnet::unique(neuralnet::evaluators::choose_evaluator());
     auto dataset = neuralnet::unique(new mnist_dataset);
 
     if (!evaluator) {
@@ -229,10 +229,13 @@ int main(int argc, const char** argv) {
     auto trainer = neuralnet::unique(
         new neuralnet::trainer(network.get(), evaluator.get(), dataset.get(), settings));
 
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    /*
     trainer->start();
     while (trainer->is_running()) {
         trainer->update();
     }
+    */
 
     loader.load_from_memory(network.get());
     loader.save_to_file();

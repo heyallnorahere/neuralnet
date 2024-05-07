@@ -26,6 +26,7 @@ namespace neuralnet {
                                 std::vector<number_t>& outputs) const = 0;
     };
 
+    using eval_callback_t = std::function<void(number_t)>;
     class NN_API trainer {
     public:
         trainer(network* nn, evaluator* nn_evaluator, dataset* data,
@@ -39,8 +40,10 @@ namespace neuralnet {
         const trainer_settings_t& get_settings() const { return m_settings; }
 
         bool is_running() { return m_running; }
+        dataset_group get_current_phase() { return m_phase; }
 
-        std::optional<number_t> compute_test_cost();
+        void on_eval_batch_complete(const eval_callback_t& callback);
+        void on_eval_batch_complete(eval_callback_t&& callback);
 
         void start();
         void stop();
@@ -62,6 +65,8 @@ namespace neuralnet {
         bool check_eval_keys();
         bool do_eval();
 
+        std::optional<number_t> compute_test_cost();
+
         network* m_network;
         evaluator* m_evaluator;
         dataset* m_dataset;
@@ -70,12 +75,14 @@ namespace neuralnet {
         trainer_settings_t m_current_settings;
         uint64_t m_batch_count, m_current_batch, m_current_eval_index;
         bool m_running;
-        std::vector<number_t> m_eval_costs;
         std::unordered_map<uint64_t, std::vector<number_t>> m_sample_map;
         std::vector<uint64_t> m_training_cycle;
 
         dataset_group m_phase;
         training_stage m_stage;
         std::vector<uint64_t> m_current_eval_keys;
+
+        std::vector<number_t> m_eval_costs, m_eval_batch_costs;
+        std::vector<eval_callback_t> m_eval_callbacks;
     };
 } // namespace neuralnet

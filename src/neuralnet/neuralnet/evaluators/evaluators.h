@@ -32,6 +32,8 @@ namespace neuralnet::evaluators {
         cpu_evaluator() { m_key = 0; }
         virtual ~cpu_evaluator() override = default;
 
+        virtual evaluator_type get_type() override { return evaluator_type::cpu; }
+
         virtual bool is_result_ready(uint64_t result) override;
         virtual bool free_result(uint64_t result) override;
 
@@ -68,6 +70,7 @@ namespace neuralnet::evaluators {
 
         void (*check_result)(VkResult result);
         PFN_vkDebugUtilsMessengerCallbackEXT debug_callback;
+        VkAllocationCallbacks alloc_callbacks;
 
         // vkGetXXXXXProcAddr
         NN_DECLARE_VK_FUNCTION(vkGetInstanceProcAddr);
@@ -81,6 +84,10 @@ namespace neuralnet::evaluators {
         // instance functions
         NN_DECLARE_VK_FUNCTION(vkDestroyInstance);
         NN_DECLARE_VK_FUNCTION(vkEnumeratePhysicalDevices);
+        NN_DECLARE_VK_FUNCTION(vkGetPhysicalDeviceFeatures);
+        NN_DECLARE_VK_FUNCTION(vkGetPhysicalDeviceFeatures2);
+        NN_DECLARE_VK_FUNCTION(vkGetPhysicalDeviceProperties);
+        NN_DECLARE_VK_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
         NN_DECLARE_VK_FUNCTION(vkEnumerateDeviceExtensionProperties);
         NN_DECLARE_VK_FUNCTION(vkCreateDevice);
 
@@ -112,6 +119,7 @@ namespace neuralnet::evaluators {
         // sync/queues
         NN_DECLARE_VK_FUNCTION(vkBeginCommandBuffer);
         NN_DECLARE_VK_FUNCTION(vkEndCommandBuffer);
+        NN_DECLARE_VK_FUNCTION(vkGetDeviceQueue);
         NN_DECLARE_VK_FUNCTION(vkQueueSubmit);
         NN_DECLARE_VK_FUNCTION(vkGetFenceStatus);
         NN_DECLARE_VK_FUNCTION(vkWaitForFences);
@@ -147,8 +155,15 @@ namespace neuralnet::evaluators {
     };
 
     struct vulkan_context_t {
+        std::string name;
         vulkan_vtable_t vtable;
         vulkan_handles_t handles;
+    };
+
+    struct vulkan_evaluator_objects_t {
+        VkQueue compute_queue;
+        VkDescriptorPool descriptor_pool;
+        VkCommandPool command_pool;
     };
 
     class NN_API vulkan_evaluator : public evaluator {
@@ -158,6 +173,8 @@ namespace neuralnet::evaluators {
 
         vulkan_evaluator();
         virtual ~vulkan_evaluator() override;
+
+        virtual evaluator_type get_type() override { return evaluator_type::vulkan; }
 
         virtual bool is_result_ready(uint64_t result) override;
         virtual bool free_result(uint64_t result) override;
@@ -180,9 +197,16 @@ namespace neuralnet::evaluators {
         virtual number_t cost_function(number_t actual, number_t expected) override;
 
     private:
+        void init_vulkan();
+        void shutdown_vulkan();
+
         std::unique_ptr<vulkan_context_t> m_context;
+        vulkan_evaluator_objects_t m_objects;
+        bool m_profiling_enabled;
     };
 #endif
 
-    NN_API std::unique_ptr<evaluator> choose_evaluator();
+    NN_API bool is_evaluator_supported(evaluator_type type);
+    NN_API evaluator_type get_preferred_evaluator();
+    NN_API evaluator* choose_evaluator(evaluator_type preferred = evaluator_type::other);
 } // namespace neuralnet::evaluators

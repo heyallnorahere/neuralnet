@@ -17,6 +17,8 @@ namespace neuralnet {
     public:
         virtual ~evaluator() = default;
 
+        virtual evaluator_type get_type() { return evaluator_type::other; }
+
         // checks if the requested result has finished computing
         virtual bool is_result_ready(uint64_t result) = 0;
 

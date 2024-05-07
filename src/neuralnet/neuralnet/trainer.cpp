@@ -23,23 +23,6 @@ namespace neuralnet {
         }
     }
 
-    std::optional<number_t> trainer::compute_test_cost() {
-        ZoneScoped;
-        if (m_eval_costs.empty()) {
-            return {};
-        }
-
-        const auto& layers = m_network->get_layers();
-        const auto& last_layer = layers[layers.size() - 1];
-
-        number_t average = 0;
-        for (number_t cost : m_eval_costs) {
-            average += std::abs(cost);
-        }
-
-        return average / m_eval_costs.size();
-    }
-
     static bool dataset_has_group(const dataset* set, dataset_group group) {
         std::unordered_set<dataset_group> groups;
         set->get_groups(groups);
@@ -385,5 +368,22 @@ namespace neuralnet {
         }
 
         return false;
+    }
+
+    std::optional<number_t> trainer::compute_test_cost() {
+        ZoneScoped;
+        if (m_eval_costs.empty()) {
+            return {};
+        }
+
+        const auto& layers = m_network->get_layers();
+        const auto& last_layer = layers[layers.size() - 1];
+
+        number_t average = 0;
+        for (number_t cost : m_eval_costs) {
+            average += std::abs(cost);
+        }
+
+        return average / m_eval_costs.size();
     }
 } // namespace neuralnet
