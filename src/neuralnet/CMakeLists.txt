@@ -29,10 +29,29 @@ if(NN_SUPPORT_VULKAN)
     list(APPEND NN_LIBRARIES volk vma)
 endif()
 
+set(NN_RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/neuralnet/resources")
+file(GLOB_RECURSE NN_RESOURCES CONFIGURE_DEPENDS "${NN_RESOURCE_DIR}/*")
+file(GLOB_RECURSE NN_SHADER_SOURCE CONFIGURE_DEPENDS "${NN_RESOURCE_DIR}/*.glsl")
+list(REMOVE_ITEM NN_RESOURCES ${NN_SHADER_SOURCE})
+
+set(NN_RESOURCE_FILE "${CMAKE_CURRENT_BINARY_DIR}/resources.gen.cpp")
+set(NN_RESOURCE_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/neuralnet/resources.cpp.in")
+set(NN_RESOURCE_DATA_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/neuralnet/resource_data.cpp.in")
+list(APPEND NN_SOURCE ${NN_RESOURCE_FILE})
+
+foreach(RESOURCE_PATH ${NN_RESOURCES})
+    string(APPEND NN_RESOURCE_STRING ":${RESOURCE_PATH}")
+endforeach()
+
+set(NN_GENERATOR_COMMAND nn_resource_generator -o ${NN_RESOURCE_FILE} -t ${NN_RESOURCE_TEMPLATE} -d ${NN_RESOURCE_DATA_TEMPLATE} -i ${NN_RESOURCE_STRING} -r ${NN_RESOURCE_DIR})
+add_custom_command(OUTPUT ${NN_RESOURCE_FILE} COMMAND ${NN_GENERATOR_COMMAND} DEPENDS ${NN_RESOURCES} ${NN_RESOURCE_TEMPLATE} ${NN_RESOURCE_DATA_TEMPLATE})
+
 add_library(neuralnet STATIC ${NN_SOURCE})
 
 target_link_libraries(neuralnet PUBLIC ${NN_LIBRARIES})
 target_include_directories(neuralnet PUBLIC ${NN_INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(neuralnet ${NN_DEFS})
 target_precompile_headers(neuralnet PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/nnpch.h")
-set_target_properties(neuralnet PROPERTIES CXX_STANDARD 20)
+set_target_properties(neuralnet PROPERTIES
+    CXX_STANDARD 20
+    FOLDER "neuralnet")

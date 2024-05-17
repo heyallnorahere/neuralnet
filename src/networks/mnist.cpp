@@ -7,6 +7,7 @@
 
 #include <neuralnet.h>
 #include <neuralnet/compression.h>
+#include <neuralnet/resources.h>
 using number_t = neuralnet::number_t;
 
 struct group_paths_t {

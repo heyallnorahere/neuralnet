@@ -1,0 +1,1 @@
+Every resource here (except GLSL files) is compiled with the [resource generator](../../../nn_resource_generator/) into a generated source file.

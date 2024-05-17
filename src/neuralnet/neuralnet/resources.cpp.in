@@ -1,0 +1,16 @@
+#include "nnpch.h"
+#include "neuralnet/resources.h"
+
+namespace neuralnet {
+    static const std::unordered_map<fs::path, std::shared_ptr<resource>> s_resources = {
+        ${content}
+    };
+
+    const resource& resource::get(const fs::path& path) {
+        if (!s_resources.contains(path)) {
+            throw std::runtime_error("no such resource: " + path.string());
+        }
+
+        return *s_resources.at(path);
+    }
+}
