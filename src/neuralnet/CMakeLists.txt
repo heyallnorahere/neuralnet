@@ -39,11 +39,30 @@ set(NN_RESOURCE_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/neuralnet/resources.cpp.in
 set(NN_RESOURCE_DATA_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/neuralnet/resource_data.cpp.in")
 list(APPEND NN_SOURCE ${NN_RESOURCE_FILE})
 
+if(NN_SUPPORT_VULKAN)
+    file(GLOB NN_COMPUTE_SHADERS CONFIGURE_DEPENDS "${NN_RESOURCE_DIR}/glsl/*.glsl")
+
+    set(NN_SPIRV_DIR "${NN_RESOURCE_DIR}/spirv")
+    make_directory(${NN_SPIRV_DIR})
+
+    foreach(SHADER_SOURCE ${NN_COMPUTE_SHADERS})
+        cmake_path(GET SHADER_SOURCE STEM SHADER_NAME)
+        set(SPIRV_PATH "${NN_SPIRV_DIR}/${SHADER_NAME}.spv")
+
+        add_custom_command(OUTPUT ${SPIRV_PATH} DEPENDS ${NN_SHADER_SOURCE} COMMAND glslc_exe -fshader-stage=comp ${SHADER_SOURCE} -O --target-env=vulkan1.0 -o ${SPIRV_PATH})
+
+        list(FIND NN_RESOURCES ${SPIRV_PATH} PATH_INDEX)
+        if(PATH_INDEX LESS 0)
+            list(APPEND NN_RESOURCES ${SPIRV_PATH})
+        endif()
+    endforeach()
+endif()
+
 foreach(RESOURCE_PATH ${NN_RESOURCES})
     string(APPEND NN_RESOURCE_STRING ":${RESOURCE_PATH}")
 endforeach()
 
-set(NN_GENERATOR_COMMAND nn_resource_generator -o ${NN_RESOURCE_FILE} -t ${NN_RESOURCE_TEMPLATE} -d ${NN_RESOURCE_DATA_TEMPLATE} -i ${NN_RESOURCE_STRING} -r ${NN_RESOURCE_DIR})
+set(NN_GENERATOR_COMMAND nn_resource_generator -o ${NN_RESOURCE_FILE} -t ${NN_RESOURCE_TEMPLATE} -d ${NN_RESOURCE_DATA_TEMPLATE} -i ${NN_RESOURCE_STRING} -r ${CMAKE_CURRENT_SOURCE_DIR})
 add_custom_command(OUTPUT ${NN_RESOURCE_FILE} COMMAND ${NN_GENERATOR_COMMAND} DEPENDS ${NN_RESOURCES} ${NN_RESOURCE_TEMPLATE} ${NN_RESOURCE_DATA_TEMPLATE})
 
 add_library(neuralnet STATIC ${NN_SOURCE})

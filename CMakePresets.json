@@ -38,8 +38,7 @@
             "configuration": "Release",
             "jobs": 8,
             "targets": [
-                "mnist",
-                "nn_resource_generator"
+                "mnist"
             ]
         },
         {

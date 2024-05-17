@@ -37,4 +37,9 @@ if(NN_BUILD_VULKAN AND NN_SUPPORT_VULKAN)
         VMA_DEBUG_GLOBAL_MUTEX=0
         VMA_DEBUG_DONT_EXCEED_MAX_MEMORY_ALLOCATION_COUNT=0
         VMA_RECORDING_ENABLED=0)
+
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    execute_process(COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/shaderc/utils/git-sync-deps")
+
+    add_subdirectory("shaderc")
 endif()
