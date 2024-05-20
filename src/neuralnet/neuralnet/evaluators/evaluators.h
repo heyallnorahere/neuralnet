@@ -99,6 +99,7 @@ namespace neuralnet::evaluators {
         NN_DECLARE_VK_FUNCTION(vkCreateDescriptorSetLayout);
         NN_DECLARE_VK_FUNCTION(vkCreateDescriptorPool);
         NN_DECLARE_VK_FUNCTION(vkAllocateDescriptorSets);
+        NN_DECLARE_VK_FUNCTION(vkCreateShaderModule);
         NN_DECLARE_VK_FUNCTION(vkCreatePipelineLayout);
         NN_DECLARE_VK_FUNCTION(vkCreateComputePipelines);
         NN_DECLARE_VK_FUNCTION(vkCreateCommandPool);
@@ -111,6 +112,7 @@ namespace neuralnet::evaluators {
         NN_DECLARE_VK_FUNCTION(vkDestroyCommandPool);
         NN_DECLARE_VK_FUNCTION(vkDestroyPipeline);
         NN_DECLARE_VK_FUNCTION(vkDestroyPipelineLayout);
+        NN_DECLARE_VK_FUNCTION(vkDestroyShaderModule);
         NN_DECLARE_VK_FUNCTION(vkFreeDescriptorSets);
         NN_DECLARE_VK_FUNCTION(vkDestroyDescriptorPool);
         NN_DECLARE_VK_FUNCTION(vkDestroyDescriptorSetLayout);
@@ -164,6 +166,10 @@ namespace neuralnet::evaluators {
         VkQueue compute_queue;
         VkDescriptorPool descriptor_pool;
         VkCommandPool command_pool;
+
+        VkDescriptorSetLayout evaluation_layout, network_layout;
+        VkPipelineLayout pipeline_layout;
+        std::unordered_map<std::string, VkPipeline> pipelines;
     };
 
     class NN_API vulkan_evaluator : public evaluator {

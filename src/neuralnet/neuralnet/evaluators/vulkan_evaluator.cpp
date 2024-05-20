@@ -1,9 +1,14 @@
 #include "nnpch.h"
 #include "neuralnet/evaluators/evaluators.h"
 #include "neuralnet/util.h"
+#include "neuralnet/resources.h"
 
 namespace neuralnet::evaluators {
     static std::unique_ptr<vulkan_context_t> s_next_context;
+
+    // see resources/glsl/includes/buffers.glsl
+    static constexpr size_t max_layers = 32;
+    static constexpr size_t max_neurons_per_layer = 1024;
 
     static VkBool32 vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                           VkDebugUtilsMessageTypeFlagsEXT messageTypes,
@@ -67,7 +72,7 @@ namespace neuralnet::evaluators {
     }
 
     static void* vk_realloc(void* pUserData, void* pOriginal, size_t size, size_t alignment,
-                           VkSystemAllocationScope allocationScope) {
+                            VkSystemAllocationScope allocationScope) {
         ZoneScoped;
 
         size_t original_size = s_vulkan_block_sizes.at(pOriginal);
@@ -147,6 +152,7 @@ namespace neuralnet::evaluators {
         NN_LOAD_VK_DEVICE(vtable, device, vkCreateDescriptorSetLayout);
         NN_LOAD_VK_DEVICE(vtable, device, vkCreateDescriptorPool);
         NN_LOAD_VK_DEVICE(vtable, device, vkAllocateDescriptorSets);
+        NN_LOAD_VK_DEVICE(vtable, device, vkCreateShaderModule);
         NN_LOAD_VK_DEVICE(vtable, device, vkCreatePipelineLayout);
         NN_LOAD_VK_DEVICE(vtable, device, vkCreateComputePipelines);
         NN_LOAD_VK_DEVICE(vtable, device, vkCreateCommandPool);
@@ -159,6 +165,7 @@ namespace neuralnet::evaluators {
         NN_LOAD_VK_DEVICE(vtable, device, vkDestroyCommandPool);
         NN_LOAD_VK_DEVICE(vtable, device, vkDestroyPipeline);
         NN_LOAD_VK_DEVICE(vtable, device, vkDestroyPipelineLayout);
+        NN_LOAD_VK_DEVICE(vtable, device, vkDestroyShaderModule);
         NN_LOAD_VK_DEVICE(vtable, device, vkFreeDescriptorSets);
         NN_LOAD_VK_DEVICE(vtable, device, vkDestroyDescriptorPool);
         NN_LOAD_VK_DEVICE(vtable, device, vkDestroyDescriptorSetLayout);
@@ -512,6 +519,20 @@ namespace neuralnet::evaluators {
         v.check_result(vmaCreateAllocator(&create_info, &handles.allocator));
     }
 
+    static void create_set_layout(vulkan_context_t* context, VkDescriptorSetLayout* layout,
+                                  const std::vector<VkDescriptorSetLayoutBinding>& bindings) {
+        ZoneScoped;
+
+        VkDescriptorSetLayoutCreateInfo create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        create_info.bindingCount = (uint32_t)bindings.size();
+        create_info.pBindings = bindings.data();
+
+        const auto& v = context->vtable;
+        v.check_result(v.vkCreateDescriptorSetLayout(context->handles.device, &create_info,
+                                                     &v.alloc_callbacks, layout));
+    }
+
     static void create_objects(vulkan_evaluator_objects_t* objects, vulkan_context_t* context) {
         ZoneScoped;
 
@@ -542,6 +563,77 @@ namespace neuralnet::evaluators {
 
         v.check_result(v.vkCreateDescriptorPool(handles.device, &descriptor_pool_info,
                                                 &v.alloc_callbacks, &objects->descriptor_pool));
+
+        static const std::vector<VkDescriptorSetLayoutBinding> evaluation_bindings = {
+            { 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, max_layers + 1, VK_SHADER_STAGE_COMPUTE_BIT },
+            { 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT },
+        };
+
+        static const std::vector<VkDescriptorSetLayoutBinding> network_bindings = {
+            { 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, max_layers, VK_SHADER_STAGE_COMPUTE_BIT },
+        };
+
+        static const std::vector<std::string> shader_names = { "evaluation" };
+
+        create_set_layout(context, &objects->evaluation_layout, evaluation_bindings);
+        create_set_layout(context, &objects->network_layout, network_bindings);
+
+        std::vector<VkDescriptorSetLayout> set_layouts = { objects->evaluation_layout,
+                                                           objects->network_layout };
+
+        VkPushConstantRange range{};
+        range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        range.size = sizeof(uint32_t);
+        range.offset = 0;
+
+        VkPipelineLayoutCreateInfo layout_info{};
+        layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout_info.setLayoutCount = (uint32_t)set_layouts.size();
+        layout_info.pSetLayouts = set_layouts.data();
+        layout_info.pushConstantRangeCount = 1;
+        layout_info.pPushConstantRanges = &range;
+
+        v.check_result(v.vkCreatePipelineLayout(handles.device, &layout_info, &v.alloc_callbacks,
+                                                &objects->pipeline_layout));
+
+        std::vector<VkShaderModule> modules;
+        std::vector<VkComputePipelineCreateInfo> pipeline_specs;
+
+        for (const auto& name : shader_names) {
+            std::string shader_path = "neuralnet/resources/spirv/" + name + ".spv";
+            const auto& shader_resource = resource::get(shader_path);
+
+            VkShaderModuleCreateInfo module_info{};
+            module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+            module_info.codeSize = shader_resource.size();
+            module_info.pCode = (const uint32_t*)(const void*)shader_resource.data();
+
+            VkShaderModule module;
+            v.check_result(
+                v.vkCreateShaderModule(handles.device, &module_info, &v.alloc_callbacks, &module));
+
+            VkComputePipelineCreateInfo pipeline_info{};
+            pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+            pipeline_info.layout = objects->pipeline_layout;
+            pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            pipeline_info.stage.module = module;
+            pipeline_info.stage.pName = "main";
+            pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            modules.push_back(module);
+            pipeline_specs.push_back(pipeline_info);
+        }
+
+        std::vector<VkPipeline> pipelines(pipeline_specs.size());
+        v.check_result(v.vkCreateComputePipelines(
+            handles.device, VK_NULL_HANDLE, (uint32_t)pipeline_specs.size(), pipeline_specs.data(),
+            &v.alloc_callbacks, pipelines.data()));
+
+        for (size_t i = 0; i < pipelines.size(); i++) {
+            v.vkDestroyShaderModule(handles.device, modules[i], &v.alloc_callbacks);
+
+            objects->pipelines[shader_names[i]] = pipelines[i];
+        }
     }
 
     static void create_profiler(vulkan_context_t* context, vulkan_evaluator_objects_t* objects) {
@@ -609,6 +701,16 @@ namespace neuralnet::evaluators {
 
         const auto& v = m_context->vtable;
         const auto& handles = m_context->handles;
+
+        for (const auto& [name, pipeline] : m_objects.pipelines) {
+            v.vkDestroyPipeline(handles.device, pipeline, &v.alloc_callbacks);
+        }
+
+        v.vkDestroyPipelineLayout(handles.device, m_objects.pipeline_layout, &v.alloc_callbacks);
+        v.vkDestroyDescriptorSetLayout(handles.device, m_objects.evaluation_layout,
+                                       &v.alloc_callbacks);
+        v.vkDestroyDescriptorSetLayout(handles.device, m_objects.network_layout,
+                                       &v.alloc_callbacks);
 
         v.vkDestroyCommandPool(handles.device, m_objects.command_pool, &v.alloc_callbacks);
         v.vkDestroyDescriptorPool(handles.device, m_objects.descriptor_pool, &v.alloc_callbacks);
