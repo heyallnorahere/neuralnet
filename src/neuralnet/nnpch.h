@@ -29,7 +29,7 @@
 #include <tracy/Tracy.hpp>
 
 namespace neuralnet {
-    using number_t = double;
+    using number_t = float;
 
 #ifdef NN_FS_INCLUDE_EXISTS
     namespace fs = std::filesystem;

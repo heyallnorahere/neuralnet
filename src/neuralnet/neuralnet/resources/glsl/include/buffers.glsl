@@ -3,24 +3,19 @@
 
 #define SIGMOID 0
 
-layout(set = 0, binding = 0, std430) buffer activations_t {
-    double activations[MAX_NEURONS_PER_LAYER];
-    double z[MAX_NEURONS_PER_LAYER];
-} activations[MAX_LAYERS + 1];
+layout(set = 0, binding = 0, r32f) uniform image2D activations;
+layout(set = 0, binding = 1, r32f) uniform image2D z_values;
+layout(set = 0, binding = 2, r32f) uniform image3D deltas;
 
-struct layer_data_t {
-    double biases[MAX_NEURONS_PER_LAYER];
-    double weights[MAX_NEURONS_PER_LAYER * MAX_NEURONS_PER_LAYER];
+struct layer_t {
+    uint size, previous_size, activation_function;
 };
 
-layout(set = 0, binding = 1, std430) buffer deltas_t {
-    layer_data_t deltas[MAX_LAYERS];
-} deltas;
+layout(set = 1, binding = 0, std430) buffer network_t {
+    layer_t layers[MAX_LAYERS];
+} network;
 
-layout(set = 1, binding = 0, std430) buffer layer_t {
-    uint size, previous_size, activation_function;
-    layer_data_t data;
-} layers[MAX_LAYERS];
+layout(set = 1, binding = 1, r32f) uniform image3D layer_data;
 
 layout(push_constant) uniform push_constants_t {
     uint layer;

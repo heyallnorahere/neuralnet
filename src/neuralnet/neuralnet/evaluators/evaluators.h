@@ -14,7 +14,7 @@
 
 namespace neuralnet::evaluators {
 #ifdef NN_SUPPORT_cpu
-    enum cpu_result_type { eval, backprop };
+    enum class cpu_result_type { eval, backprop };
 
     struct cpu_result_t {
         cpu_result_type type;
@@ -37,21 +37,24 @@ namespace neuralnet::evaluators {
         virtual bool is_result_ready(uint64_t result) override;
         virtual bool free_result(uint64_t result) override;
 
-        virtual std::optional<uint64_t> begin_eval(const network* nn,
+        virtual uint64_t new_batch() override { return 0; }
+
+        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
                                                    const std::vector<number_t>& inputs) override;
 
-        virtual std::optional<uint64_t> begin_eval(const network* nn, void* native_inputs) override;
+        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
+                                                   void* native_inputs) override;
 
         virtual bool get_eval_result(uint64_t result, void** outputs) override;
         virtual void retrieve_eval_values(const network* nn, void* native_outputs,
                                           std::vector<number_t>& outputs) override;
 
-        virtual std::optional<uint64_t> begin_backprop(const network* nn,
+        virtual std::optional<uint64_t> begin_backprop(uint64_t batch, const network* nn,
                                                        const backprop_data_t& data) override;
 
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override;
 
-        virtual void flush() override;
+        virtual void flush(uint64_t batch) override {}
         virtual number_t cost_function(number_t actual, number_t expected) override;
 
     private:
@@ -88,6 +91,7 @@ namespace neuralnet::evaluators {
         NN_DECLARE_VK_FUNCTION(vkGetPhysicalDeviceFeatures2);
         NN_DECLARE_VK_FUNCTION(vkGetPhysicalDeviceProperties);
         NN_DECLARE_VK_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
+        NN_DECLARE_VK_FUNCTION(vkGetPhysicalDeviceImageFormatProperties);
         NN_DECLARE_VK_FUNCTION(vkEnumerateDeviceExtensionProperties);
         NN_DECLARE_VK_FUNCTION(vkCreateDevice);
 
@@ -105,8 +109,10 @@ namespace neuralnet::evaluators {
         NN_DECLARE_VK_FUNCTION(vkCreateCommandPool);
         NN_DECLARE_VK_FUNCTION(vkAllocateCommandBuffers);
         NN_DECLARE_VK_FUNCTION(vkCreateFence);
+        NN_DECLARE_VK_FUNCTION(vkCreateImageView);
 
         // destroying objects
+        NN_DECLARE_VK_FUNCTION(vkDestroyImageView);
         NN_DECLARE_VK_FUNCTION(vkDestroyFence);
         NN_DECLARE_VK_FUNCTION(vkFreeCommandBuffers);
         NN_DECLARE_VK_FUNCTION(vkDestroyCommandPool);
@@ -123,6 +129,7 @@ namespace neuralnet::evaluators {
         NN_DECLARE_VK_FUNCTION(vkEndCommandBuffer);
         NN_DECLARE_VK_FUNCTION(vkGetDeviceQueue);
         NN_DECLARE_VK_FUNCTION(vkQueueSubmit);
+        NN_DECLARE_VK_FUNCTION(vkQueueWaitIdle);
         NN_DECLARE_VK_FUNCTION(vkGetFenceStatus);
         NN_DECLARE_VK_FUNCTION(vkWaitForFences);
         NN_DECLARE_VK_FUNCTION(vkResetFences);
@@ -131,12 +138,20 @@ namespace neuralnet::evaluators {
         NN_DECLARE_VK_FUNCTION(vkCmdPipelineBarrier);
         NN_DECLARE_VK_FUNCTION(vkCmdBindPipeline);
         NN_DECLARE_VK_FUNCTION(vkCmdBindDescriptorSets);
+        NN_DECLARE_VK_FUNCTION(vkCmdPushConstants);
         NN_DECLARE_VK_FUNCTION(vkCmdDispatch);
+        NN_DECLARE_VK_FUNCTION(vkCmdCopyBufferToImage);
+        NN_DECLARE_VK_FUNCTION(vkCmdCopyImageToBuffer);
+
+        // idk man
+        NN_DECLARE_VK_FUNCTION(vkUpdateDescriptorSets);
     };
 
     struct vulkan_handles_t {
         vulkan_handles_t() {
             vulkan_version = 0;
+            additional_image_usage = 0;
+
             context_provided = false;
             profiler_context = nullptr;
         }
@@ -154,6 +169,7 @@ namespace neuralnet::evaluators {
 
         uint32_t compute_queue_index;
         std::unordered_set<uint32_t> shared_queue_indices;
+        VkImageUsageFlags additional_image_usage;
     };
 
     struct vulkan_context_t {
@@ -172,6 +188,52 @@ namespace neuralnet::evaluators {
         std::unordered_map<std::string, VkPipeline> pipelines;
     };
 
+    struct vulkan_buffer_t {
+        VkBuffer buffer;
+        VmaAllocation allocation;
+        size_t size;
+    };
+
+    struct vulkan_image_t {
+        VkImage image;
+        VkImageView view;
+        VmaAllocation allocation;
+
+        VkExtent3D size;
+        VkImageType type;
+        VkImageViewType view_type;
+    };
+
+    struct vulkan_network_data_t {
+        vulkan_buffer_t info_buffer;
+        vulkan_image_t data_image;
+        VkDescriptorSet descriptor_set;
+
+        uint64_t references;
+    };
+
+    struct vulkan_pass_data_t {
+        vulkan_image_t activations, z, deltas;
+        VkDescriptorSet descriptor_set;
+
+        uint64_t references, pass_id;
+        const network* nn;
+    };
+
+    enum class vulkan_result_type { eval, backprop };
+    struct vulkan_result_t {
+        vulkan_result_type type;
+        uint64_t pass;
+    };
+
+    struct vulkan_batch_t {
+        VkCommandBuffer command_buffer;
+        VkFence fence;
+        bool flushed;
+
+        std::unordered_map<uint64_t, vulkan_result_t> results;
+    };
+
     class NN_API vulkan_evaluator : public evaluator {
     public:
         static void set_next_context(std::unique_ptr<vulkan_context_t>&& context);
@@ -185,30 +247,47 @@ namespace neuralnet::evaluators {
         virtual bool is_result_ready(uint64_t result) override;
         virtual bool free_result(uint64_t result) override;
 
-        virtual std::optional<uint64_t> begin_eval(const network* nn,
+        virtual uint64_t new_batch() override;
+
+        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
                                                    const std::vector<number_t>& inputs) override;
 
-        virtual std::optional<uint64_t> begin_eval(const network* nn, void* native_inputs) override;
+        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
+                                                   void* native_inputs) override;
 
         virtual bool get_eval_result(uint64_t result, void** outputs) override;
         virtual void retrieve_eval_values(const network* nn, void* native_outputs,
                                           std::vector<number_t>& outputs) override;
 
-        virtual std::optional<uint64_t> begin_backprop(const network* nn,
+        virtual std::optional<uint64_t> begin_backprop(uint64_t batch, const network* nn,
                                                        const backprop_data_t& data) override;
 
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override;
 
-        virtual void flush() override;
+        virtual void flush(uint64_t batch) override;
         virtual number_t cost_function(number_t actual, number_t expected) override;
 
     private:
         void init_vulkan();
         void shutdown_vulkan();
 
+        void add_network_reference(const network* network);
+        void remove_network_reference(const network* network);
+
+        void remove_pass_reference(uint64_t pass);
+        uint64_t new_pass(const network* network, const std::vector<number_t>& inputs);
+
+        vulkan_pass_data_t* get_pass_ptr(uint64_t result);
+
         std::unique_ptr<vulkan_context_t> m_context;
         vulkan_evaluator_objects_t m_objects;
         bool m_profiling_enabled;
+
+        uint64_t m_current_pass_id, m_current_batch_id, m_current_result_id;
+        std::unordered_map<uint64_t, uint64_t> m_result_id_map;
+        std::unordered_map<const network*, vulkan_network_data_t> m_network_data;
+        std::unordered_map<uint64_t, vulkan_batch_t> m_batches;
+        std::unordered_map<uint64_t, vulkan_pass_data_t> m_passes;
     };
 #endif
 

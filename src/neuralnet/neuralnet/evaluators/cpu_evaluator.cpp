@@ -65,7 +65,7 @@ namespace neuralnet::evaluators {
         return true;
     }
 
-    std::optional<uint64_t> cpu_evaluator::begin_eval(const network* nn,
+    std::optional<uint64_t> cpu_evaluator::begin_eval(uint64_t batch, const network* nn,
                                                       const std::vector<number_t>& inputs) {
         ZoneScoped;
 
@@ -74,10 +74,11 @@ namespace neuralnet::evaluators {
             return {};
         }
 
-        return begin_eval(nn, (void*)inputs.data());
+        return begin_eval(batch, nn, (void*)inputs.data());
     }
 
-    std::optional<uint64_t> cpu_evaluator::begin_eval(const network* nn, void* native_inputs) {
+    std::optional<uint64_t> cpu_evaluator::begin_eval(uint64_t batch, const network* nn,
+                                                      void* native_inputs) {
         ZoneScoped;
 
         const auto& layers = nn->get_layers();
@@ -125,7 +126,7 @@ namespace neuralnet::evaluators {
         copy(layer_data, outputs.data(), output_layer.size * sizeof(number_t));
     }
 
-    std::optional<uint64_t> cpu_evaluator::begin_backprop(const network* nn,
+    std::optional<uint64_t> cpu_evaluator::begin_backprop(uint64_t batch, const network* nn,
                                                           const backprop_data_t& data) {
         ZoneScoped;
 
@@ -173,8 +174,6 @@ namespace neuralnet::evaluators {
 
         return true;
     }
-
-    void cpu_evaluator::flush() {}
 
     number_t cpu_evaluator::cost_function(number_t actual, number_t expected) {
         return C(actual, expected);
@@ -293,6 +292,4 @@ namespace neuralnet::evaluators {
             result.results[i] = delta;
         }
     }
-
-    evaluator* create_cpu_evaluator() { return new cpu_evaluator; }
 } // namespace neuralnet::evaluators

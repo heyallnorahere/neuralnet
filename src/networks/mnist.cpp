@@ -230,13 +230,10 @@ int main(int argc, const char** argv) {
     auto trainer = neuralnet::unique(
         new neuralnet::trainer(network.get(), evaluator.get(), dataset.get(), settings));
 
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-    /*
     trainer->start();
     while (trainer->is_running()) {
         trainer->update();
     }
-    */
 
     loader.load_from_memory(network.get());
     loader.save_to_file();

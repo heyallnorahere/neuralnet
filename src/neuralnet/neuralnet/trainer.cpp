@@ -134,6 +134,7 @@ namespace neuralnet {
 
     void trainer::eval() {
         ZoneScoped;
+        uint64_t id = m_evaluator->new_batch();
 
         uint64_t batch_size = m_current_settings.batch_size;
         for (uint64_t i = 0; i < batch_size; i++) {
@@ -146,7 +147,7 @@ namespace neuralnet {
                                          std::to_string(sample_index) + "!");
             }
 
-            auto key = m_evaluator->begin_eval(m_network, inputs);
+            auto key = m_evaluator->begin_eval(id, m_network, inputs);
             if (!key) {
                 throw std::runtime_error("failed to begin evaluation!");
             }
@@ -156,7 +157,7 @@ namespace neuralnet {
             m_current_eval_keys.push_back(eval_key);
         }
 
-        m_evaluator->flush();
+        m_evaluator->flush(id);
     }
 
     void trainer::backprop() {
@@ -169,6 +170,7 @@ namespace neuralnet {
         std::vector eval_keys(m_current_eval_keys);
         m_current_eval_keys.clear();
 
+        uint64_t id = m_evaluator->new_batch();
         for (uint64_t eval_key : eval_keys) {
             if (m_sample_map.find(eval_key) == m_sample_map.end()) {
                 throw std::runtime_error("failed to find sample expected outputs!");
@@ -181,7 +183,7 @@ namespace neuralnet {
                 throw std::runtime_error("failed to retrieve eval result!");
             }
 
-            auto key = m_evaluator->begin_backprop(m_network, data);
+            auto key = m_evaluator->begin_backprop(id, m_network, data);
             if (!key) {
                 throw std::runtime_error("failed to begin backpropagation!");
             }
@@ -191,7 +193,7 @@ namespace neuralnet {
             m_current_eval_keys.push_back(key.value());
         }
 
-        m_evaluator->flush();
+        m_evaluator->flush(id);
     }
 
     bool trainer::compose_deltas() {
@@ -338,6 +340,8 @@ namespace neuralnet {
             return true;
         }
 
+        uint64_t id = m_evaluator->new_batch();
+
         m_current_eval_keys.resize(batch_size);
         for (uint64_t i = 0; i < batch_size; i++) {
             uint64_t sample = i + m_current_eval_index;
@@ -347,7 +351,7 @@ namespace neuralnet {
                 throw std::runtime_error("failed to get eval sample!");
             }
 
-            auto key = m_evaluator->begin_eval(m_network, inputs);
+            auto key = m_evaluator->begin_eval(id, m_network, inputs);
             if (!key) {
                 throw std::runtime_error("failed to begin eval!");
             }
@@ -356,7 +360,7 @@ namespace neuralnet {
             m_sample_map[eval_key] = outputs;
         }
 
-        m_evaluator->flush();
+        m_evaluator->flush(id);
         if (check_eval_keys()) {
             return false;
         }
