@@ -35,7 +35,7 @@ void main() {
         }
 
         float a = A(z, layer_info.activation_function);
-        imageStore(z_values, ivec2(int(c), int(layer)), vec4(z, 0.f, 0.f, 0.f));
-        imageStore(activations, ivec2(int(c), int(activation_layer_index)), vec4(a, 0.f, 0.f, 0.f));
+        imageStore(z_values, ivec2(int(c), int(layer)), vec4(z, 0, 0, 0));
+        imageStore(activations, ivec2(int(c), int(activation_layer_index)), vec4(a, 0, 0, 0));
     }
 }

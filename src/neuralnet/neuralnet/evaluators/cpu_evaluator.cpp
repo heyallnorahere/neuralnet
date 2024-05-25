@@ -275,13 +275,14 @@ namespace neuralnet::evaluators {
                     for (size_t n = 0; n < next_layer.size; n++) {
                         number_t weight = network::get_weight(next_layer, n, c);
                         number_t dC_db_n = network::get_bias(next_delta, n);
+                        number_t dC_dz_n = dC_db_n / 1.f; // dz/db
 
-                        dC_da += weight * dC_db_n;
+                        dC_da += weight * dC_dz_n;
                     }
                 }
 
                 number_t dC_dz = dC_da * dA_dz(layer.function, z);
-                network::get_bias_address(*delta, c) = dC_dz * 1; // dz/db
+                network::get_bias_address(*delta, c) = dC_dz * 1.f; // dz/db
 
                 for (uint64_t p = 0; p < layer.previous_size; p++) {
                     number_t previous_activation = previous_layer_data[p];

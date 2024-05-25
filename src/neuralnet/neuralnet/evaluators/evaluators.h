@@ -232,6 +232,7 @@ namespace neuralnet::evaluators {
         bool flushed;
 
         std::unordered_map<uint64_t, vulkan_result_t> results;
+        std::vector<vulkan_buffer_t> staging_buffers;
     };
 
     class NN_API vulkan_evaluator : public evaluator {

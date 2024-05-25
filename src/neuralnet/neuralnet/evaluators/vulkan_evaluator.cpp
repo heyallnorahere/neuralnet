@@ -22,8 +22,10 @@ namespace neuralnet::evaluators {
     static constexpr VkAccessFlags image_access_flags =
         VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
 
-    static constexpr VkAccessFlags transfer_access = VK_ACCESS_TRANSFER_READ_BIT;
-    static constexpr VkImageLayout transfer_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    static constexpr VkAccessFlags transfer_src_access = VK_ACCESS_TRANSFER_READ_BIT;
+    static constexpr VkAccessFlags transfer_dst_access = VK_ACCESS_TRANSFER_WRITE_BIT;
+    static constexpr VkImageLayout transfer_src_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    static constexpr VkImageLayout transfer_dst_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     static constexpr VkPipelineStageFlags transfer_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 
     static VkBool32 vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -32,16 +34,20 @@ namespace neuralnet::evaluators {
                                           void* pUserData) {
         ZoneScoped;
 
+        std::string severity;
         switch (messageSeverity) {
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-            std::cerr << "Vulkan warning: " << pCallbackData->pMessage << std::endl;
+            severity = "warning";
             break;
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-            throw std::runtime_error(pCallbackData->pMessage);
+            severity = "error";
+            break;
         default:
             std::cout << "Vulkan message: " << pCallbackData->pMessage << std::endl;
         }
 
+        std::cerr << "neuralnet Vulkan " << severity << ": " << pCallbackData->pMessage
+                  << std::endl;
         return VK_FALSE;
     }
 
@@ -208,6 +214,103 @@ namespace neuralnet::evaluators {
         NN_LOAD_VK_DEVICE(vtable, device, vkCmdDispatch);
         NN_LOAD_VK_DEVICE(vtable, device, vkCmdCopyBufferToImage);
         NN_LOAD_VK_DEVICE(vtable, device, vkCmdCopyImageToBuffer);
+
+        // idk man
+        NN_LOAD_VK_DEVICE(vtable, device, vkUpdateDescriptorSets);
+    }
+
+    static void create_vulkan_buffer(vulkan_context_t* context, size_t size,
+                                     vulkan_buffer_t* buffer) {
+        ZoneScoped;
+        buffer->size = size;
+
+        VkBufferCreateInfo create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        create_info.size = (VkDeviceSize)size;
+        create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // not for any other purpose
+        create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                            VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+        VmaAllocationCreateInfo alloc_info{};
+        alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+        alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+
+        context->vtable.check_result(vmaCreateBuffer(context->handles.allocator, &create_info,
+                                                     &alloc_info, &buffer->buffer,
+                                                     &buffer->allocation, nullptr));
+    }
+
+    static void destroy_vulkan_buffer(vulkan_context_t* context, const vulkan_buffer_t* buffer) {
+        ZoneScoped;
+        vmaDestroyBuffer(context->handles.allocator, buffer->buffer, buffer->allocation);
+    }
+
+    static void create_vulkan_image(vulkan_context_t* context, VkImageType type,
+                                    VkImageViewType view_type, const VkExtent3D& size,
+                                    vulkan_image_t* image) {
+        ZoneScoped;
+
+        const auto& v = context->vtable;
+        const auto& handles = context->handles;
+
+        image->size = size;
+        image->type = type;
+        image->view_type = view_type;
+
+        std::vector<uint32_t> queue_indices = { context->handles.compute_queue_index };
+        for (uint32_t index : context->handles.shared_queue_indices) {
+            if (index != context->handles.compute_queue_index) {
+                queue_indices.push_back(index);
+            }
+        }
+
+        VkImageCreateInfo create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        create_info.imageType = type;
+        create_info.extent = size;
+        create_info.arrayLayers = 1;
+        create_info.mipLevels = 1;
+        create_info.format = image_format;
+        create_info.tiling = image_tiling;
+        create_info.usage = image_usage | context->handles.additional_image_usage;
+        create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+
+        if (queue_indices.size() > 1) {
+            create_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+            create_info.queueFamilyIndexCount = (uint32_t)queue_indices.size();
+            create_info.pQueueFamilyIndices = queue_indices.data();
+        } else {
+            create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        }
+
+        VmaAllocationCreateInfo alloc_info{};
+        alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+        v.check_result(vmaCreateImage(handles.allocator, &create_info, &alloc_info, &image->image,
+                                      &image->allocation, nullptr));
+
+        VkImageViewCreateInfo view_info{};
+        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view_info.image = image->image;
+        view_info.viewType = view_type;
+        view_info.format = image_format;
+        view_info.subresourceRange.aspectMask = image_aspect_flags;
+        view_info.subresourceRange.layerCount = 1;
+        view_info.subresourceRange.levelCount = 1;
+
+        v.check_result(
+            v.vkCreateImageView(handles.device, &view_info, &v.alloc_callbacks, &image->view));
+    }
+
+    static void destroy_vulkan_image(vulkan_context_t* context, const vulkan_image_t* image) {
+        ZoneScoped;
+
+        const auto& v = context->vtable;
+        const auto& handles = context->handles;
+
+        v.vkDestroyImageView(handles.device, image->view, &v.alloc_callbacks);
+        vmaDestroyImage(handles.allocator, image->image, image->allocation);
     }
 
     static void create_instance(vulkan_context_t* context) {
@@ -740,6 +843,8 @@ namespace neuralnet::evaluators {
         } else {
             m_profiling_enabled = true;
             create_profiler(m_context.get(), &m_objects);
+
+            create_allocator(m_context.get());
         }
     }
 
@@ -822,6 +927,16 @@ namespace neuralnet::evaluators {
         uint64_t batch_id = m_result_id_map.at(result);
         auto& batch = m_batches[batch_id];
 
+        const auto& v = m_context->vtable;
+        const auto& handles = m_context->handles;
+
+        if (batch.command_buffer != VK_NULL_HANDLE) {
+            v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1,
+                                   &batch.command_buffer);
+
+            batch.command_buffer = VK_NULL_HANDLE;
+        }
+
         const auto& result_data = batch.results[result];
         uint64_t pass = result_data.pass;
 
@@ -829,12 +944,10 @@ namespace neuralnet::evaluators {
         batch.results.erase(result);
 
         if (batch.results.empty()) {
-            const auto& v = m_context->vtable;
-            const auto& handles = m_context->handles;
-
             v.vkDestroyFence(handles.device, batch.fence, &v.alloc_callbacks);
-            v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1,
-                                   &batch.command_buffer);
+            for (const auto& buffer : batch.staging_buffers) {
+                destroy_vulkan_buffer(m_context.get(), &buffer);
+            }
 
             m_batches.erase(batch_id);
         }
@@ -894,6 +1007,10 @@ namespace neuralnet::evaluators {
         batch.flushed = false;
         batch.command_buffer = alloc_open_command_buffer(m_context.get(), m_objects.command_pool);
 
+        if (!m_context->handles.context_provided) {
+            TracyVkCollect(m_context->handles.profiler_context, batch.command_buffer);
+        }
+
         VkFenceCreateInfo fence_info{};
         fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
@@ -902,98 +1019,6 @@ namespace neuralnet::evaluators {
                                        &batch.fence));
 
         return id;
-    }
-
-    static void create_vulkan_buffer(vulkan_context_t* context, size_t size,
-                                     vulkan_buffer_t* buffer) {
-        ZoneScoped;
-        buffer->size = size;
-
-        VkBufferCreateInfo create_info{};
-        create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        create_info.size = (VkDeviceSize)size;
-        create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // not for any other purpose
-        create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                            VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-        VmaAllocationCreateInfo alloc_info{};
-        alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-
-        context->vtable.check_result(vmaCreateBuffer(context->handles.allocator, &create_info,
-                                                     &alloc_info, &buffer->buffer,
-                                                     &buffer->allocation, nullptr));
-    }
-
-    static void destroy_vulkan_buffer(vulkan_context_t* context, const vulkan_buffer_t* buffer) {
-        ZoneScoped;
-        vmaDestroyBuffer(context->handles.allocator, buffer->buffer, buffer->allocation);
-    }
-
-    static void create_vulkan_image(vulkan_context_t* context, VkImageType type,
-                                    VkImageViewType view_type, const VkExtent3D& size,
-                                    vulkan_image_t* image) {
-        ZoneScoped;
-
-        const auto& v = context->vtable;
-        const auto& handles = context->handles;
-
-        image->size = size;
-        image->type = type;
-        image->view_type = view_type;
-
-        std::vector<uint32_t> queue_indices = { context->handles.compute_queue_index };
-        for (uint32_t index : context->handles.shared_queue_indices) {
-            if (index != context->handles.compute_queue_index) {
-                queue_indices.push_back(index);
-            }
-        }
-
-        VkImageCreateInfo create_info{};
-        create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        create_info.imageType = type;
-        create_info.extent = size;
-        create_info.arrayLayers = 1;
-        create_info.mipLevels = 1;
-        create_info.format = image_format;
-        create_info.tiling = image_tiling;
-        create_info.usage = image_usage | context->handles.additional_image_usage;
-        create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-        if (queue_indices.size() > 1) {
-            create_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
-            create_info.queueFamilyIndexCount = (uint32_t)queue_indices.size();
-            create_info.pQueueFamilyIndices = queue_indices.data();
-        } else {
-            create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        }
-
-        VmaAllocationCreateInfo alloc_info{};
-        alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-
-        v.check_result(vmaCreateImage(handles.allocator, &create_info, &alloc_info, &image->image,
-                                      &image->allocation, nullptr));
-
-        VkImageViewCreateInfo view_info{};
-        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        view_info.image = image->image;
-        view_info.viewType = view_type;
-        view_info.format = image_format;
-        view_info.subresourceRange.aspectMask = image_aspect_flags;
-        view_info.subresourceRange.layerCount = 1;
-        view_info.subresourceRange.levelCount = 1;
-
-        v.check_result(
-            v.vkCreateImageView(handles.device, &view_info, &v.alloc_callbacks, &image->view));
-    }
-
-    static void destroy_vulkan_image(vulkan_context_t* context, const vulkan_image_t* image) {
-        ZoneScoped;
-
-        const auto& v = context->vtable;
-        const auto& handles = context->handles;
-
-        v.vkDestroyImageView(handles.device, image->view, &v.alloc_callbacks);
-        vmaDestroyImage(handles.allocator, image->image, image->allocation);
     }
 
     std::optional<uint64_t> vulkan_evaluator::begin_eval(uint64_t batch, const network* nn,
@@ -1120,10 +1145,10 @@ namespace neuralnet::evaluators {
         auto& activations = pass->activations;
 
         VkImageMemoryBarrier src_barrier, dst_barrier;
-        create_image_barrier(src_barrier, activations.image, image_access_flags, transfer_access,
-                             image_compute_layout, transfer_layout);
-        create_image_barrier(src_barrier, activations.image, transfer_access, image_access_flags,
-                             transfer_layout, image_compute_layout);
+        create_image_barrier(src_barrier, activations.image, image_access_flags,
+                             transfer_src_access, image_compute_layout, transfer_src_layout);
+        create_image_barrier(dst_barrier, activations.image, transfer_src_access,
+                             image_access_flags, transfer_src_layout, image_compute_layout);
 
         VkBufferImageCopy image_copy{};
         image_copy.bufferOffset = 0;
@@ -1154,7 +1179,7 @@ namespace neuralnet::evaluators {
             v.vkCmdPipelineBarrier(command_buffer, compute_stage, transfer_stage, 0, 0, nullptr, 0,
                                    nullptr, 1, &src_barrier);
 
-            v.vkCmdCopyImageToBuffer(command_buffer, activations.image, transfer_layout,
+            v.vkCmdCopyImageToBuffer(command_buffer, activations.image, transfer_src_layout,
                                      staging_buffer.buffer, 1, &image_copy);
 
             v.vkCmdPipelineBarrier(command_buffer, transfer_stage, compute_stage, 0, 0, nullptr, 0,
@@ -1187,7 +1212,7 @@ namespace neuralnet::evaluators {
             return {};
         }
 
-        const auto& pass_data = *(vulkan_pass_data_t*)data.eval_outputs;
+        auto& pass_data = *(vulkan_pass_data_t*)data.eval_outputs;
         uint64_t pass = pass_data.pass_id;
         uint64_t result = m_current_result_id++;
         m_result_id_map[result] = batch;
@@ -1198,6 +1223,7 @@ namespace neuralnet::evaluators {
 
         const auto& network_data = m_network_data.at(nn);
         const auto& v = m_context->vtable;
+        const auto& handles = m_context->handles;
 
         VkPipeline pipeline = m_objects.pipelines.at("backpropagation");
         v.vkCmdBindPipeline(batch_data.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
@@ -1218,10 +1244,44 @@ namespace neuralnet::evaluators {
                                  image_compute_layout, image_compute_layout);
         }
 
+        VkImageMemoryBarrier src_barrier, dst_barrier;
+        create_image_barrier(src_barrier, pass_data.activations.image, image_access_flags,
+                             transfer_dst_access, image_compute_layout, transfer_dst_layout);
+        create_image_barrier(dst_barrier, pass_data.activations.image, transfer_dst_access,
+                             image_access_flags, transfer_dst_layout, image_compute_layout);
+
+        auto& staging_buffer = batch_data.staging_buffers.emplace_back();
+        create_vulkan_buffer(m_context.get(), data.expected_outputs.size() * sizeof(number_t),
+                             &staging_buffer);
+
+        void* mapped = nullptr;
+        v.check_result(vmaMapMemory(handles.allocator, staging_buffer.allocation, &mapped));
+        copy(data.expected_outputs.data(), mapped, staging_buffer.size);
+        vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
+
+        VkBufferImageCopy region{};
+        region.imageExtent.width = (uint32_t)data.expected_outputs.size();
+        region.imageExtent.height = 1;
+        region.imageExtent.depth = 1;
+        region.imageOffset.y = (uint32_t)pass_data.activations.size.height - 1;
+        region.imageSubresource.aspectMask = image_aspect_flags;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        region.imageSubresource.mipLevel = 0;
+
         {
             TracyVkZoneTransient(m_context->handles.profiler_context, vk_zone,
                                  batch_data.command_buffer, "Network backpropagation",
                                  m_profiling_enabled);
+
+            v.vkCmdPipelineBarrier(batch_data.command_buffer, compute_stage, transfer_stage, 0, 0,
+                                   nullptr, 0, nullptr, 1, &src_barrier);
+
+            v.vkCmdCopyBufferToImage(batch_data.command_buffer, staging_buffer.buffer,
+                                     pass_data.activations.image, transfer_dst_layout, 1, &region);
+
+            v.vkCmdPipelineBarrier(batch_data.command_buffer, transfer_stage, compute_stage, 0, 0,
+                                   nullptr, 0, nullptr, 1, &dst_barrier);
 
             const auto& layers = nn->get_layers();
             for (uint32_t i = 0; i < layers.size(); i++) {
@@ -1243,6 +1303,7 @@ namespace neuralnet::evaluators {
             }
         }
 
+        pass_data.references++;
         return result;
     }
 
@@ -1265,10 +1326,10 @@ namespace neuralnet::evaluators {
         create_vulkan_buffer(m_context.get(), buffer_size * sizeof(number_t), &staging_buffer);
 
         VkImageMemoryBarrier src_barrier, dst_barrier;
-        create_image_barrier(src_barrier, delta_image.image, image_access_flags, transfer_access,
-                             image_compute_layout, transfer_layout);
-        create_image_barrier(src_barrier, delta_image.image, transfer_access, image_access_flags,
-                             transfer_layout, image_compute_layout);
+        create_image_barrier(src_barrier, delta_image.image, image_access_flags,
+                             transfer_src_access, image_compute_layout, transfer_src_layout);
+        create_image_barrier(dst_barrier, delta_image.image, transfer_src_access,
+                             image_access_flags, transfer_src_layout, image_compute_layout);
 
         VkBufferImageCopy image_copy{};
         image_copy.imageExtent = delta_image.size;
@@ -1289,16 +1350,22 @@ namespace neuralnet::evaluators {
             v.vkCmdPipelineBarrier(command_buffer, compute_stage, transfer_stage, 0, 0, nullptr, 0,
                                    nullptr, 1, &src_barrier);
 
-            v.vkCmdCopyImageToBuffer(command_buffer, delta_image.image, transfer_layout,
+            v.vkCmdCopyImageToBuffer(command_buffer, delta_image.image, transfer_src_layout,
                                      staging_buffer.buffer, 1, &image_copy);
 
             v.vkCmdPipelineBarrier(command_buffer, transfer_stage, compute_stage, 0, 0, nullptr, 0,
                                    nullptr, 1, &dst_barrier);
         }
 
+        end_and_submit_command_buffer(m_context.get(), m_objects.compute_queue, command_buffer,
+                                      true, VK_NULL_HANDLE);
+
+        v.vkFreeCommandBuffers(m_context->handles.device, m_objects.command_pool, 1,
+                               &command_buffer);
+
         number_t* mapped = nullptr;
         v.check_result(
-            vmaMapMemory(m_context->handles.allocator, delta_image.allocation, (void**)&mapped));
+            vmaMapMemory(m_context->handles.allocator, staging_buffer.allocation, (void**)&mapped));
 
         deltas.resize(layers.size());
         for (size_t z = 0; z < layers.size(); z++) {
@@ -1321,7 +1388,7 @@ namespace neuralnet::evaluators {
             }
         }
 
-        vmaUnmapMemory(m_context->handles.allocator, delta_image.allocation);
+        vmaUnmapMemory(m_context->handles.allocator, staging_buffer.allocation);
         return true;
     }
 
@@ -1517,7 +1584,7 @@ namespace neuralnet::evaluators {
 
         VkExtent3D activations_size{};
         activations_size.width = (uint32_t)std::max(max_neurons, layers[0].previous_size);
-        activations_size.height = (uint32_t)layers.size() + 1;
+        activations_size.height = (uint32_t)layers.size() + 2;
         activations_size.depth = 1;
 
         create_vulkan_image(m_context.get(), VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D,
@@ -1544,35 +1611,76 @@ namespace neuralnet::evaluators {
         std::vector<VkDescriptorImageInfo> image_info(descriptor_images.size());
         std::vector<VkWriteDescriptorSet> writes(descriptor_images.size());
 
+        vulkan_buffer_t staging_buffer;
+        create_vulkan_buffer(m_context.get(), inputs.size() * sizeof(number_t), &staging_buffer);
+
+        const auto& v = m_context->vtable;
+        const auto& handles = m_context->handles;
+
+        void* mapped = nullptr;
+        vmaMapMemory(handles.allocator, staging_buffer.allocation, &mapped);
+        copy(inputs.data(), mapped, staging_buffer.size);
+        vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
+
         VkCommandBuffer command_buffer =
             alloc_open_command_buffer(m_context.get(), m_objects.command_pool);
 
-        for (size_t i = 0; i < descriptor_images.size(); i++) {
-            auto image = descriptor_images[i];
-            initialize_image(m_context.get(), command_buffer, image->image);
+        {
+            TracyVkZoneTransient(handles.profiler_context, vk_zone, command_buffer,
+                                 "Set up pass data", m_profiling_enabled);
 
-            auto& info = image_info[i];
-            info.sampler = VK_NULL_HANDLE;
-            info.imageLayout = image_compute_layout;
-            info.imageView = image->view;
+            VkImageMemoryBarrier src_barrier, dst_barrier;
+            create_image_barrier(src_barrier, pass.activations.image, 0, transfer_dst_access,
+                                 VK_IMAGE_LAYOUT_UNDEFINED, transfer_dst_layout);
 
-            auto& write = writes[i];
-            std::memset(&write, 0, sizeof(VkWriteDescriptorSet));
+            create_image_barrier(dst_barrier, pass.activations.image, transfer_dst_access,
+                                 image_access_flags, transfer_dst_layout, image_compute_layout);
 
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.descriptorCount = 1;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            write.dstSet = pass.descriptor_set;
-            write.dstBinding = (uint32_t)i;
-            write.dstArrayElement = 0;
-            write.pImageInfo = &info;
+            VkBufferImageCopy region{};
+            region.imageExtent.width = (uint32_t)inputs.size();
+            region.imageExtent.height = 1;
+            region.imageExtent.depth = 1;
+            region.bufferOffset = 0;
+            region.imageSubresource.aspectMask = image_aspect_flags;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+            region.imageSubresource.mipLevel = 0;
+
+            v.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                   transfer_stage, 0, 0, nullptr, 0, nullptr, 1, &src_barrier);
+
+            v.vkCmdCopyBufferToImage(command_buffer, staging_buffer.buffer, pass.activations.image,
+                                     transfer_dst_layout, 1, &region);
+
+            v.vkCmdPipelineBarrier(command_buffer, transfer_stage, compute_stage, 0, 0, nullptr, 0,
+                                   nullptr, 1, &dst_barrier);
+
+            for (size_t i = 0; i < descriptor_images.size(); i++) {
+                auto image = descriptor_images[i];
+                if (image != &pass.activations) {
+                    initialize_image(m_context.get(), command_buffer, image->image);
+                }
+
+                auto& info = image_info[i];
+                info.sampler = VK_NULL_HANDLE;
+                info.imageLayout = image_compute_layout;
+                info.imageView = image->view;
+
+                auto& write = writes[i];
+                std::memset(&write, 0, sizeof(VkWriteDescriptorSet));
+
+                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.descriptorCount = 1;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write.dstSet = pass.descriptor_set;
+                write.dstBinding = (uint32_t)i;
+                write.dstArrayElement = 0;
+                write.pImageInfo = &info;
+            }
         }
 
         end_and_submit_command_buffer(m_context.get(), m_objects.compute_queue, command_buffer,
                                       true, VK_NULL_HANDLE);
-
-        const auto& v = m_context->vtable;
-        const auto& handles = m_context->handles;
 
         v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
         v.vkUpdateDescriptorSets(handles.device, (uint32_t)writes.size(), writes.data(), 0,
@@ -1590,5 +1698,4 @@ namespace neuralnet::evaluators {
 
         return &m_passes[result_data.pass];
     }
-
 } // namespace neuralnet::evaluators
