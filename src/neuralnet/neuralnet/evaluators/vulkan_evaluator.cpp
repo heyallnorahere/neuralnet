@@ -1535,6 +1535,49 @@ namespace neuralnet::evaluators {
         create_vulkan_image(m_context.get(), VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D,
                             network_data.data_image.size, &pass.deltas);
 
+        alloc_descriptor_sets(m_context.get(), m_objects.evaluation_layout,
+                              m_objects.descriptor_pool, 1, &pass.descriptor_set);
+
+        std::vector<vulkan_image_t*> descriptor_images = { &pass.activations, &pass.z,
+                                                           &pass.deltas };
+
+        std::vector<VkDescriptorImageInfo> image_info(descriptor_images.size());
+        std::vector<VkWriteDescriptorSet> writes(descriptor_images.size());
+
+        VkCommandBuffer command_buffer =
+            alloc_open_command_buffer(m_context.get(), m_objects.command_pool);
+
+        for (size_t i = 0; i < descriptor_images.size(); i++) {
+            auto image = descriptor_images[i];
+            initialize_image(m_context.get(), command_buffer, image->image);
+
+            auto& info = image_info[i];
+            info.sampler = VK_NULL_HANDLE;
+            info.imageLayout = image_compute_layout;
+            info.imageView = image->view;
+
+            auto& write = writes[i];
+            std::memset(&write, 0, sizeof(VkWriteDescriptorSet));
+
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write.dstSet = pass.descriptor_set;
+            write.dstBinding = (uint32_t)i;
+            write.dstArrayElement = 0;
+            write.pImageInfo = &info;
+        }
+
+        end_and_submit_command_buffer(m_context.get(), m_objects.compute_queue, command_buffer,
+                                      true, VK_NULL_HANDLE);
+
+        const auto& v = m_context->vtable;
+        const auto& handles = m_context->handles;
+
+        v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
+        v.vkUpdateDescriptorSets(handles.device, (uint32_t)writes.size(), writes.data(), 0,
+                                 nullptr);
+
         return id;
     }
 
