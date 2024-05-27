@@ -65,7 +65,12 @@ namespace neuralnet::evaluators {
         return true;
     }
 
-    std::optional<uint64_t> cpu_evaluator::begin_eval(uint64_t batch, const network* nn,
+    struct cpu_inputs_t {
+        const number_t* data;
+        size_t count;
+    };
+
+    std::optional<uint64_t> cpu_evaluator::begin_eval(const network* nn,
                                                       const std::vector<number_t>& inputs) {
         ZoneScoped;
 
@@ -74,11 +79,14 @@ namespace neuralnet::evaluators {
             return {};
         }
 
-        return begin_eval(batch, nn, (void*)inputs.data());
+        cpu_inputs_t input_data;
+        input_data.data = inputs.data();
+        input_data.count = inputs.size();
+
+        return begin_eval(nn, &input_data);
     }
 
-    std::optional<uint64_t> cpu_evaluator::begin_eval(uint64_t batch, const network* nn,
-                                                      void* native_inputs) {
+    std::optional<uint64_t> cpu_evaluator::begin_eval(const network* nn, void* native_inputs) {
         ZoneScoped;
 
         const auto& layers = nn->get_layers();
@@ -89,10 +97,18 @@ namespace neuralnet::evaluators {
         uint64_t key = m_key++;
         auto& result = m_results[key];
 
+        auto inputs = (cpu_inputs_t*)native_inputs;
+        uint64_t input_count = layers[0].size;
+        size_t pass_count = (inputs->count - (inputs->count % input_count)) / input_count;
+
         result.type = cpu_result_type::eval;
         result.nn = nn;
+        result.passes = pass_count;
 
-        eval((number_t*)native_inputs, result);
+        for (size_t i = 0; i < pass_count; i++) {
+            eval(&inputs->data[i * layers.size()], result);
+        }
+
         return key;
     }
 
@@ -126,7 +142,7 @@ namespace neuralnet::evaluators {
         copy(layer_data, outputs.data(), output_layer.size * sizeof(number_t));
     }
 
-    std::optional<uint64_t> cpu_evaluator::begin_backprop(uint64_t batch, const network* nn,
+    std::optional<uint64_t> cpu_evaluator::begin_backprop(const network* nn,
                                                           const backprop_data_t& data) {
         ZoneScoped;
 
@@ -146,12 +162,16 @@ namespace neuralnet::evaluators {
 
         result.type = cpu_result_type::backprop;
         result.nn = nn;
+        result.passes = eval_result->passes;
 
         cpu_backprop_data_t backprop_data;
         backprop_data.backprop_input = &data;
         backprop_data.eval_result = eval_result;
 
-        backprop(backprop_data, result);
+        for (size_t i = 0; i < result.passes; i++) {
+            backprop(backprop_data, result, i * layers.size());
+        }
+
         return key;
     }
 
@@ -179,7 +199,7 @@ namespace neuralnet::evaluators {
         return C(actual, expected);
     }
 
-    void cpu_evaluator::eval(number_t* inputs, cpu_result_t& result) {
+    void cpu_evaluator::eval(const number_t* inputs, cpu_result_t& result) {
         ZoneScoped;
         const auto& layers = result.nn->get_layers();
 
@@ -196,7 +216,7 @@ namespace neuralnet::evaluators {
             layer_activations.resize(layer.size);
             layer_z.resize(layer.size);
 
-            number_t* previous_activations = i > 0 ? activations[i - 1].data() : inputs;
+            auto previous_activations = i > 0 ? activations[i - 1].data() : inputs;
             for (uint64_t c = 0; c < layer.size; c++) {
                 number_t neuron_z = layer.biases[c];
 
@@ -213,8 +233,6 @@ namespace neuralnet::evaluators {
         }
 
         size_t result_count = layers.size() + 1;
-        result.results.resize(result_count);
-
         for (size_t i = 0; i < result_count; i++) {
             if (i == 0) {
                 size_t first_layer_size = layers[0].previous_size * sizeof(number_t);
@@ -237,16 +255,15 @@ namespace neuralnet::evaluators {
             copy(activations[layer_index].data(), layer_data, layer_size);
             copy(z[layer_index].data(), (void*)((size_t)layer_data + layer_size), layer_size);
 
-            result.results[i] = layer_data;
+            result.results.push_back(layer_data);
         }
     }
 
-    void cpu_evaluator::backprop(const cpu_backprop_data_t& data, cpu_result_t& result) {
+    void cpu_evaluator::backprop(const cpu_backprop_data_t& data, cpu_result_t& result,
+                                 size_t offset) {
         ZoneScoped;
 
         const auto& layers = result.nn->get_layers();
-        result.results.resize(layers.size());
-
         for (int64_t i = layers.size() - 1; i >= 0; i--) {
             const auto& layer = layers[i];
 
@@ -256,8 +273,9 @@ namespace neuralnet::evaluators {
             delta->biases.resize(delta->size);
             delta->weights.resize(delta->size * delta->previous_size);
 
-            auto layer_data = (number_t*)data.eval_result->results[i + 1];
-            auto previous_layer_data = (number_t*)data.eval_result->results[i];
+            size_t result_offset = offset + i;
+            auto layer_data = (number_t*)data.eval_result->results[result_offset + 1];
+            auto previous_layer_data = (number_t*)data.eval_result->results[result_offset];
 
             for (uint64_t c = 0; c < layer.size; c++) {
                 number_t z = layer_data[layer.size + c];
@@ -290,7 +308,7 @@ namespace neuralnet::evaluators {
                 }
             }
 
-            result.results[i] = delta;
+            result.results.push_back(delta);
         }
     }
 } // namespace neuralnet::evaluators

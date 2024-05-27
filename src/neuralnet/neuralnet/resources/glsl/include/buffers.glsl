@@ -3,8 +3,8 @@
 
 #define SIGMOID 0
 
-layout(set = 0, binding = 0, r32f) uniform image2D activations;
-layout(set = 0, binding = 1, r32f) uniform image2D z_values;
+layout(set = 0, binding = 0, r32f) uniform image3D activations;
+layout(set = 0, binding = 1, r32f) uniform image3D z_values;
 layout(set = 0, binding = 2, r32f) uniform image3D deltas;
 
 struct layer_t {

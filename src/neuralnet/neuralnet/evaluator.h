@@ -21,18 +21,14 @@ namespace neuralnet {
         // frees comitted resources used by the requested result
         virtual bool free_result(uint64_t result) = 0;
 
-        // for asynchronous evaluators, this will create a new evaluation batch
-        virtual uint64_t new_batch() = 0;
-
         // begins evaluating the provided neural network with the provided inputs, in the form of a
         // number array
-        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
+        virtual std::optional<uint64_t> begin_eval(const network* nn,
                                                    const std::vector<number_t>& inputs) = 0;
 
         // begins evaluating the provided neural network with the provided inputs, in the form of a
         // native container
-        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
-                                                   void* native_inputs) = 0;
+        virtual std::optional<uint64_t> begin_eval(const network* nn, void* native_inputs) = 0;
 
         // retrieves the native result of the evaluation requested
         virtual bool get_eval_result(uint64_t result, void** outputs) = 0;
@@ -44,15 +40,11 @@ namespace neuralnet {
         // evaluation results
         // if asynchronous, the implementation must NOT reference the output from get_eval_result
         // during evaluation
-        virtual std::optional<uint64_t> begin_backprop(uint64_t batch, const network* nn,
+        virtual std::optional<uint64_t> begin_backprop(const network* nn,
                                                        const backprop_data_t& data) = 0;
 
         // retrieves deltas computed via gradient descent during backprop with the given key
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) = 0;
-
-        // for asynchronous evaluators, begins evaluation
-        // for synchronous evaluators, does nothing
-        virtual void flush(uint64_t batch) = 0;
 
         // cost function for training
         virtual number_t cost_function(number_t actual, number_t expected) = 0;

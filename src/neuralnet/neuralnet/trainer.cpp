@@ -134,9 +134,10 @@ namespace neuralnet {
 
     void trainer::eval() {
         ZoneScoped;
-        uint64_t id = m_evaluator->new_batch();
 
         uint64_t batch_size = m_current_settings.batch_size;
+        std::vector<number_t> batch_inputs, batch_outputs;
+
         for (uint64_t i = 0; i < batch_size; i++) {
             uint64_t training_cycle_index = i + m_current_batch * batch_size;
             uint64_t sample_index = m_training_cycle[(size_t)training_cycle_index];
@@ -147,17 +148,18 @@ namespace neuralnet {
                                          std::to_string(sample_index) + "!");
             }
 
-            auto key = m_evaluator->begin_eval(id, m_network, inputs);
-            if (!key) {
-                throw std::runtime_error("failed to begin evaluation!");
-            }
-
-            uint64_t eval_key = key.value();
-            m_sample_map[eval_key] = outputs;
-            m_current_eval_keys.push_back(eval_key);
+            batch_inputs.insert(batch_inputs.end(), inputs.begin(), inputs.end());
+            batch_outputs.insert(batch_outputs.end(), outputs.begin(), outputs.end());
         }
 
-        m_evaluator->flush(id);
+        auto key = m_evaluator->begin_eval(m_network, batch_inputs);
+        if (!key) {
+            throw std::runtime_error("failed to begin evaluation!");
+        }
+
+        uint64_t eval_key = key.value();
+        m_sample_map[eval_key] = batch_outputs;
+        m_current_eval_keys.push_back(eval_key);
     }
 
     void trainer::backprop() {
@@ -170,7 +172,6 @@ namespace neuralnet {
         std::vector eval_keys(m_current_eval_keys);
         m_current_eval_keys.clear();
 
-        uint64_t id = m_evaluator->new_batch();
         for (uint64_t eval_key : eval_keys) {
             if (m_sample_map.find(eval_key) == m_sample_map.end()) {
                 throw std::runtime_error("failed to find sample expected outputs!");
@@ -183,7 +184,7 @@ namespace neuralnet {
                 throw std::runtime_error("failed to retrieve eval result!");
             }
 
-            auto key = m_evaluator->begin_backprop(id, m_network, data);
+            auto key = m_evaluator->begin_backprop(m_network, data);
             if (!key) {
                 throw std::runtime_error("failed to begin backpropagation!");
             }
@@ -192,8 +193,6 @@ namespace neuralnet {
             m_evaluator->free_result(eval_key);
             m_current_eval_keys.push_back(key.value());
         }
-
-        m_evaluator->flush(id);
     }
 
     bool trainer::compose_deltas() {
@@ -209,27 +208,25 @@ namespace neuralnet {
                 throw std::runtime_error("failed to retrieve layer deltas!");
             }
 
-            if (layer_count != deltas.size()) {
-                throw std::runtime_error("delta/layer count mismatch!");
-            }
-
+            size_t pass_count = (deltas.size() - (deltas.size() % layers.size())) / layers.size();
             for (size_t i = 0; i < layer_count; i++) {
                 auto& layer = layers[i];
-                auto& delta = deltas[i];
+                for (size_t j = 0; j < pass_count; j++) {
+                    auto& delta = deltas[j * layers.size() + i];
+                    if (delta.size != layer.size || delta.previous_size != layer.previous_size) {
+                        throw std::runtime_error("delta/layer size mismatch!");
+                    }
 
-                if (delta.size != layer.size || delta.previous_size != layer.previous_size) {
-                    throw std::runtime_error("delta/layer size mismatch!");
-                }
+                    for (size_t c = 0; c < layer.size; c++) {
+                        number_t& bias = network::get_bias_address(layer, c);
+                        number_t bias_delta = network::get_bias(delta, c);
+                        bias -= bias_delta * delta_scalar;
 
-                for (size_t c = 0; c < layer.size; c++) {
-                    number_t& bias = network::get_bias_address(layer, c);
-                    number_t bias_delta = network::get_bias(delta, c);
-                    bias -= bias_delta * delta_scalar;
-
-                    for (size_t p = 0; p < layer.previous_size; p++) {
-                        number_t& weight = network::get_weight_address(layer, c, p);
-                        number_t weight_delta = network::get_weight(delta, c, p);
-                        weight -= weight_delta * delta_scalar;
+                        for (size_t p = 0; p < layer.previous_size; p++) {
+                            number_t& weight = network::get_weight_address(layer, c, p);
+                            number_t weight_delta = network::get_weight(delta, c, p);
+                            weight -= weight_delta * delta_scalar;
+                        }
                     }
                 }
             }
@@ -340,9 +337,7 @@ namespace neuralnet {
             return true;
         }
 
-        uint64_t id = m_evaluator->new_batch();
-
-        m_current_eval_keys.resize(batch_size);
+        std::vector<number_t> batch_inputs, batch_outputs;
         for (uint64_t i = 0; i < batch_size; i++) {
             uint64_t sample = i + m_current_eval_index;
 
@@ -351,16 +346,21 @@ namespace neuralnet {
                 throw std::runtime_error("failed to get eval sample!");
             }
 
-            auto key = m_evaluator->begin_eval(id, m_network, inputs);
-            if (!key) {
-                throw std::runtime_error("failed to begin eval!");
-            }
-
-            uint64_t eval_key = key.value();
-            m_sample_map[eval_key] = outputs;
+            batch_inputs.insert(batch_inputs.end(), inputs.begin(), inputs.end());
+            batch_outputs.insert(batch_inputs.end(), inputs.begin(), inputs.end());
         }
 
-        m_evaluator->flush(id);
+        auto key = m_evaluator->begin_eval(m_network, batch_inputs);
+        if (!key) {
+            throw std::runtime_error("failed to begin eval!");
+        }
+
+        uint64_t eval_key = key.value();
+        m_sample_map[eval_key] = batch_outputs;
+
+        m_current_eval_keys.resize(1); // hacky solution
+        m_current_eval_keys[0] = eval_key;
+
         if (check_eval_keys()) {
             return false;
         }

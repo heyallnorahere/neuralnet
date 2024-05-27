@@ -24,6 +24,7 @@ namespace neuralnet::evaluators {
         // after the first element, each pointer contains activations, and then pre-activations
         // for backprop, this vector contains deltas to apply to the neural network, typed layer_t
         std::vector<void*> results;
+        size_t passes;
     };
 
     struct cpu_backprop_data_t;
@@ -37,29 +38,25 @@ namespace neuralnet::evaluators {
         virtual bool is_result_ready(uint64_t result) override;
         virtual bool free_result(uint64_t result) override;
 
-        virtual uint64_t new_batch() override { return 0; }
-
-        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
+        virtual std::optional<uint64_t> begin_eval(const network* nn,
                                                    const std::vector<number_t>& inputs) override;
 
-        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
-                                                   void* native_inputs) override;
+        virtual std::optional<uint64_t> begin_eval(const network* nn, void* native_inputs) override;
 
         virtual bool get_eval_result(uint64_t result, void** outputs) override;
         virtual void retrieve_eval_values(const network* nn, void* native_outputs,
                                           std::vector<number_t>& outputs) override;
 
-        virtual std::optional<uint64_t> begin_backprop(uint64_t batch, const network* nn,
+        virtual std::optional<uint64_t> begin_backprop(const network* nn,
                                                        const backprop_data_t& data) override;
 
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override;
 
-        virtual void flush(uint64_t batch) override {}
         virtual number_t cost_function(number_t actual, number_t expected) override;
 
     private:
-        void eval(number_t* inputs, cpu_result_t& result);
-        void backprop(const cpu_backprop_data_t& data, cpu_result_t& result);
+        void eval(const number_t* inputs, cpu_result_t& result);
+        void backprop(const cpu_backprop_data_t& data, cpu_result_t& result, size_t offset);
 
         uint64_t m_key;
         std::unordered_map<uint64_t, cpu_result_t> m_results;
@@ -217,6 +214,8 @@ namespace neuralnet::evaluators {
         VkDescriptorSet descriptor_set;
 
         uint64_t references, pass_id;
+        size_t run_count;
+
         const network* nn;
     };
 
@@ -224,14 +223,10 @@ namespace neuralnet::evaluators {
     struct vulkan_result_t {
         vulkan_result_type type;
         uint64_t pass;
-    };
 
-    struct vulkan_batch_t {
         VkCommandBuffer command_buffer;
         VkFence fence;
-        bool flushed;
 
-        std::unordered_map<uint64_t, vulkan_result_t> results;
         std::vector<vulkan_buffer_t> staging_buffers;
     };
 
@@ -248,24 +243,20 @@ namespace neuralnet::evaluators {
         virtual bool is_result_ready(uint64_t result) override;
         virtual bool free_result(uint64_t result) override;
 
-        virtual uint64_t new_batch() override;
-
-        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
+        virtual std::optional<uint64_t> begin_eval(const network* nn,
                                                    const std::vector<number_t>& inputs) override;
 
-        virtual std::optional<uint64_t> begin_eval(uint64_t batch, const network* nn,
-                                                   void* native_inputs) override;
+        virtual std::optional<uint64_t> begin_eval(const network* nn, void* native_inputs) override;
 
         virtual bool get_eval_result(uint64_t result, void** outputs) override;
         virtual void retrieve_eval_values(const network* nn, void* native_outputs,
                                           std::vector<number_t>& outputs) override;
 
-        virtual std::optional<uint64_t> begin_backprop(uint64_t batch, const network* nn,
+        virtual std::optional<uint64_t> begin_backprop(const network* nn,
                                                        const backprop_data_t& data) override;
 
         virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override;
 
-        virtual void flush(uint64_t batch) override;
         virtual number_t cost_function(number_t actual, number_t expected) override;
 
     private:
@@ -284,10 +275,9 @@ namespace neuralnet::evaluators {
         vulkan_evaluator_objects_t m_objects;
         bool m_profiling_enabled;
 
-        uint64_t m_current_pass_id, m_current_batch_id, m_current_result_id;
-        std::unordered_map<uint64_t, uint64_t> m_result_id_map;
+        uint64_t m_current_pass_id, m_current_result_id;
         std::unordered_map<const network*, vulkan_network_data_t> m_network_data;
-        std::unordered_map<uint64_t, vulkan_batch_t> m_batches;
+        std::unordered_map<uint64_t, vulkan_result_t> m_results;
         std::unordered_map<uint64_t, vulkan_pass_data_t> m_passes;
     };
 #endif
