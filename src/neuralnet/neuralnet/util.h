@@ -13,10 +13,33 @@ namespace neuralnet {
     NN_API void freemem(void* block);
     NN_API void copy(const void* src, void* dst, size_t size);
 
+    // https://stackoverflow.com/questions/38088732/explanation-to-aligned-malloc-implementation
+    inline void* aligned_alloc(size_t size, size_t alignment) {
+        void* p1;  // original block
+        void** p2; // aligned block
+
+        int offset = alignment - 1 + sizeof(void*);
+        if ((p1 = (void*)alloc(size + offset)) == nullptr) {
+            return nullptr;
+        }
+
+        p2 = (void**)(((size_t)(p1) + offset) & ~(alignment - 1));
+        p2[-1] = p1;
+        return p2;
+    }
+
+    inline void aligned_free(void* block) {
+        if (block == nullptr) {
+            return;
+        }
+        
+        freemem(((void**)block)[-1]);
+    }
+
     template <std::endian E, typename T>
     inline void read_with_endianness(const void* data, T& result) {
         ZoneScoped;
-        
+
         if constexpr (std::endian::native == E) {
             neuralnet::copy(data, &result, sizeof(T));
         } else {

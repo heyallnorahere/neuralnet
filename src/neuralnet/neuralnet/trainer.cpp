@@ -7,12 +7,18 @@ namespace neuralnet {
                      const trainer_settings_t& settings) {
         ZoneScoped;
 
+        if (nn_evaluator->is_training()) {
+            throw std::runtime_error("evaluator is already set to training mode!");
+        }
+
         m_network = nn;
         m_evaluator = nn_evaluator;
         m_dataset = data;
 
         m_settings = settings;
         m_running = false;
+
+        m_evaluator->set_training(true);
     }
 
     trainer::~trainer() {
@@ -21,6 +27,8 @@ namespace neuralnet {
         if (m_running) {
             stop();
         }
+
+        m_evaluator->set_training(false);
     }
 
     static bool dataset_has_group(const dataset* set, dataset_group group) {
@@ -197,47 +205,26 @@ namespace neuralnet {
 
     bool trainer::compose_deltas() {
         ZoneScoped;
+        bool is_last_batch = ++m_current_batch == m_batch_count;
 
         auto& layers = m_network->get_layers();
         size_t layer_count = layers.size();
 
-        number_t delta_scalar = m_current_settings.learning_rate / m_current_settings.batch_size;
-        for (uint64_t backprop_key : m_current_eval_keys) {
-            std::vector<layer_t> deltas;
-            if (!m_evaluator->get_backprop_result(backprop_key, deltas)) {
-                throw std::runtime_error("failed to retrieve layer deltas!");
-            }
+        delta_composition_data_t data;
+        data.delta_scalar = m_current_settings.learning_rate / m_current_settings.batch_size;
+        data.nn = m_network;
+        data.backprop_keys = m_current_eval_keys;
+        data.copy = is_last_batch;
 
-            size_t pass_count = (deltas.size() - (deltas.size() % layers.size())) / layers.size();
-            for (size_t i = 0; i < layer_count; i++) {
-                auto& layer = layers[i];
-                for (size_t j = 0; j < pass_count; j++) {
-                    auto& delta = deltas[j * layers.size() + i];
-                    if (delta.size != layer.size || delta.previous_size != layer.previous_size) {
-                        throw std::runtime_error("delta/layer size mismatch!");
-                    }
-
-                    for (size_t c = 0; c < layer.size; c++) {
-                        number_t& bias = network::get_bias_address(layer, c);
-                        number_t bias_delta = network::get_bias(delta, c);
-                        bias -= bias_delta * delta_scalar;
-
-                        for (size_t p = 0; p < layer.previous_size; p++) {
-                            number_t& weight = network::get_weight_address(layer, c, p);
-                            number_t weight_delta = network::get_weight(delta, c, p);
-                            weight -= weight_delta * delta_scalar;
-                        }
-                    }
-                }
-            }
-
-            m_evaluator->free_result(backprop_key);
+        m_evaluator->compose_deltas(data);
+        for (uint64_t key : m_current_eval_keys) {
+            m_evaluator->free_result(key);
         }
 
         m_current_eval_keys.clear();
-        std::cout << "finished batch " << m_current_batch << std::endl;
+        std::cout << "neuralnet: finished batch " << (m_current_batch - 1) << std::endl;
 
-        return ++m_current_batch == m_batch_count;
+        return is_last_batch;
     }
 
     bool trainer::do_training_cycle() {
@@ -261,7 +248,7 @@ namespace neuralnet {
                     break;
                 }
 
-                // delta composition is always cpu-bound
+                // delta composition is always cpu-synced
             }
 
             switch (m_stage) {
@@ -320,17 +307,17 @@ namespace neuralnet {
     bool trainer::do_eval() {
         ZoneScoped;
 
+        uint64_t sample_count = m_dataset->get_sample_count(m_phase);
+        uint64_t batch_size =
+            std::min(sample_count - m_current_eval_index, m_current_settings.eval_batch_size);
+
         if (!m_current_eval_keys.empty()) {
             if (check_eval_keys()) {
                 return false;
             }
 
-            m_current_eval_index += m_current_eval_keys.size();
+            m_current_eval_index += batch_size;
         }
-
-        uint64_t sample_count = m_dataset->get_sample_count(m_phase);
-        uint64_t batch_size =
-            std::min(sample_count - m_current_eval_index, m_current_settings.eval_batch_size);
 
         if (batch_size == 0) {
             m_current_eval_keys.clear();
@@ -347,7 +334,7 @@ namespace neuralnet {
             }
 
             batch_inputs.insert(batch_inputs.end(), inputs.begin(), inputs.end());
-            batch_outputs.insert(batch_inputs.end(), inputs.begin(), inputs.end());
+            batch_outputs.insert(batch_outputs.end(), outputs.begin(), outputs.end());
         }
 
         auto key = m_evaluator->begin_eval(m_network, batch_inputs);
@@ -365,9 +352,10 @@ namespace neuralnet {
             return false;
         }
 
-        m_current_eval_index += m_current_eval_keys.size();
+        m_current_eval_index += batch_size;
+        m_current_eval_keys.clear();
+        
         if (m_current_eval_index == sample_count) {
-            m_current_eval_keys.clear();
             return true;
         }
 

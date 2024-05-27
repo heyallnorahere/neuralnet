@@ -19,4 +19,5 @@ layout(set = 1, binding = 1, r32f) uniform image3D layer_data;
 
 layout(push_constant) uniform push_constants_t {
     uint layer;
+    float delta_scalar;
 } push_constants;

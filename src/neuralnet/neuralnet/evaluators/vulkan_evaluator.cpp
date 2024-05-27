@@ -80,7 +80,7 @@ namespace neuralnet::evaluators {
                           VkSystemAllocationScope allocationScope) {
         ZoneScoped;
 
-        void* ptr = alloc(size);
+        void* ptr = aligned_alloc(size, alignment);
         s_vulkan_block_sizes.insert(std::make_pair(ptr, size));
 
         return ptr;
@@ -89,7 +89,7 @@ namespace neuralnet::evaluators {
     static void vk_free(void* pUserData, void* pMemory) {
         ZoneScoped;
 
-        freemem(pMemory);
+        aligned_free(pMemory);
         s_vulkan_block_sizes.erase(pMemory);
     }
 
@@ -725,7 +725,8 @@ namespace neuralnet::evaluators {
             { 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT }
         };
 
-        static const std::vector<std::string> shader_names = { "evaluation", "backpropagation" };
+        static const std::vector<std::string> shader_names = { "evaluation", "backpropagation",
+                                                               "deltas" };
 
         create_set_layout(context, &objects->evaluation_layout, evaluation_bindings);
         create_set_layout(context, &objects->network_layout, network_bindings);
@@ -735,7 +736,7 @@ namespace neuralnet::evaluators {
 
         VkPushConstantRange range{};
         range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        range.size = sizeof(uint32_t);
+        range.size = sizeof(uint32_t) + sizeof(float); // see include/buffers.glsl
         range.offset = 0;
 
         VkPipelineLayoutCreateInfo layout_info{};
@@ -899,10 +900,17 @@ namespace neuralnet::evaluators {
 
     vulkan_evaluator::~vulkan_evaluator() {
         ZoneScoped;
+
+        set_training(false);
+        for (auto& [network, data] : m_network_data) {
+            data.references = 1;
+            remove_network_reference(network);
+        }
+
         shutdown_vulkan();
     }
 
-    bool vulkan_evaluator::is_result_ready(uint64_t result) {
+    bool vulkan_evaluator::is_result_ready(uint64_t result) const {
         ZoneScoped;
 
         if (!m_results.contains(result)) {
@@ -1009,7 +1017,7 @@ namespace neuralnet::evaluators {
         return begin_eval(nn, (void*)&inputs);
     }
 
-    static constexpr uint32_t kernel_size = 32;
+    static constexpr uint32_t kernel_size = 8;
     static uint32_t get_work_group_count(uint64_t required_cells) {
         uint64_t remainder = required_cells % kernel_size;
         return (uint32_t)((required_cells - remainder) / kernel_size) + 1;
@@ -1129,23 +1137,25 @@ namespace neuralnet::evaluators {
         create_image_barrier(dst_barrier, activations.image, transfer_src_access,
                              image_access_flags, transfer_src_layout, image_compute_layout);
 
+        const auto& layers = nn->get_layers();
+        size_t layer_count = layers.size();
+        const auto& last_layer = layers[layer_count - 1];
+
         VkBufferImageCopy image_copy{};
         image_copy.bufferOffset = 0;
         image_copy.imageOffset.y = (int32_t)activations.size.height - 1;
-        image_copy.imageExtent = activations.size;
+        image_copy.imageExtent.width = (uint32_t)last_layer.size;
         image_copy.imageExtent.height = 1;
+        image_copy.imageExtent.depth = (uint32_t)pass->run_count;
         image_copy.imageSubresource.aspectMask = image_aspect_flags;
         image_copy.imageSubresource.baseArrayLayer = 0;
         image_copy.imageSubresource.layerCount = 1;
         image_copy.imageSubresource.mipLevel = 0;
 
-        const auto& layers = nn->get_layers();
-        size_t layer_count = layers.size();
-        const auto& last_layer = layers[layer_count - 1];
+        outputs.resize((size_t)last_layer.size * pass->run_count);
 
         vulkan_buffer_t staging_buffer;
-        create_vulkan_buffer(m_context.get(), (size_t)last_layer.size * sizeof(number_t),
-                             &staging_buffer);
+        create_vulkan_buffer(m_context.get(), outputs.size() * sizeof(number_t), &staging_buffer);
 
         auto command_buffer = alloc_open_command_buffer(m_context.get(), m_objects.command_pool);
         const auto& v = m_context->vtable;
@@ -1171,7 +1181,6 @@ namespace neuralnet::evaluators {
         void* mapped = nullptr;
         v.check_result(vmaMapMemory(handles.allocator, staging_buffer.allocation, &mapped));
 
-        outputs.resize((size_t)last_layer.size);
         copy(mapped, outputs.data(), staging_buffer.size);
 
         vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
@@ -1296,51 +1305,110 @@ namespace neuralnet::evaluators {
         return result;
     }
 
-    bool vulkan_evaluator::get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) {
+    bool vulkan_evaluator::compose_deltas(const delta_composition_data_t& data) {
         ZoneScoped;
-        if (!m_results.contains(result)) {
+        if (!m_network_data.contains(data.nn)) {
             return false;
         }
 
-        auto pass_data = get_pass_ptr(result);
-        const auto& delta_image = pass_data->deltas;
-        const auto& layers = pass_data->nn->get_layers();
+        for (uint64_t key : data.backprop_keys) {
+            if (!is_result_ready(key)) {
+                return false;
+            }
+        }
 
-        const auto& image_size = delta_image.size;
-        size_t neuron_size = (size_t)image_size.width;
-        size_t layer_size = neuron_size * image_size.height;
-        size_t buffer_size = layer_size * image_size.depth;
+        auto& layers = data.nn->get_layers();
+        auto command_buffer = alloc_open_command_buffer(m_context.get(), m_objects.command_pool);
+
+        const auto& handles = m_context->handles;
+        const auto& v = m_context->vtable;
+        const auto& network_data = m_network_data.at(data.nn);
+
+        v.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                  m_objects.pipeline_layout, 1, 1, &network_data.descriptor_set, 0,
+                                  nullptr);
+
+        v.vkCmdPushConstants(command_buffer, m_objects.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
+                             sizeof(uint32_t), sizeof(float), &data.delta_scalar);
+
+        VkPipeline pipeline = m_objects.pipelines.at("deltas");
+        v.vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+
+        VkImageMemoryBarrier sync_barrier;
+        create_image_barrier(sync_barrier, network_data.data_image.image, image_access_flags,
+                             image_access_flags, image_compute_layout, image_compute_layout);
+
+        for (size_t i = 0; i < data.backprop_keys.size(); i++) {
+            TracyVkZoneTransient(handles.profiler_context, vk_zone, command_buffer,
+                                 "Compose deltas", m_profiling_enabled);
+
+            uint64_t key = data.backprop_keys[i];
+            const auto& result = m_results.at(key);
+            const auto& pass = m_passes.at(result.pass);
+
+            if (pass.nn != data.nn) {
+                throw std::runtime_error("Network mismatch!");
+            }
+
+            if (i > 0) {
+                v.vkCmdPipelineBarrier(command_buffer, compute_stage, compute_stage, 0, 0, nullptr,
+                                       0, nullptr, 0, nullptr);
+            }
+
+            v.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                      m_objects.pipeline_layout, 0, 1, &pass.descriptor_set, 0,
+                                      nullptr);
+
+            VkExtent3D work_groups;
+            VkExtent3D data_size = network_data.data_image.size;
+
+            work_groups.width = get_work_group_count(data_size.width);
+            work_groups.height = get_work_group_count(data_size.height);
+            work_groups.depth = get_work_group_count(data_size.depth);
+
+            v.vkCmdDispatch(command_buffer, work_groups.width, work_groups.height,
+                            work_groups.depth);
+        }
 
         vulkan_buffer_t staging_buffer;
-        create_vulkan_buffer(m_context.get(), buffer_size * sizeof(number_t), &staging_buffer);
+        if (data.copy) {
+            std::vector<VkBufferImageCopy> regions;
+            size_t data_size = 0;
 
-        VkImageMemoryBarrier src_barrier, dst_barrier;
-        create_image_barrier(src_barrier, delta_image.image, image_access_flags,
-                             transfer_src_access, image_compute_layout, transfer_src_layout);
-        create_image_barrier(dst_barrier, delta_image.image, transfer_src_access,
-                             image_access_flags, transfer_src_layout, image_compute_layout);
+            for (size_t i = 0; i < layers.size(); i++) {
+                const auto& layer = layers[i];
 
-        VkBufferImageCopy image_copy{};
-        image_copy.imageExtent = delta_image.size;
-        image_copy.imageSubresource.aspectMask = image_aspect_flags;
-        image_copy.imageSubresource.baseArrayLayer = 0;
-        image_copy.imageSubresource.layerCount = 1;
-        image_copy.imageSubresource.mipLevel = 0;
-        image_copy.bufferOffset = 0;
+                auto& region = regions.emplace_back();
+                std::memset(&region, 0, sizeof(VkBufferImageCopy));
 
-        const auto& v = m_context->vtable;
-        VkCommandBuffer command_buffer =
-            alloc_open_command_buffer(m_context.get(), m_objects.command_pool);
+                region.bufferOffset = (VkDeviceSize)data_size;
+                region.imageOffset.z = (uint32_t)i;
+                region.imageExtent.width = (uint32_t)layer.previous_size + 1;
+                region.imageExtent.height = (uint32_t)layer.size;
+                region.imageExtent.depth = 1;
+                region.imageSubresource.aspectMask = image_aspect_flags;
+                region.imageSubresource.baseArrayLayer = 0;
+                region.imageSubresource.layerCount = 1;
+                region.imageSubresource.mipLevel = 0;
 
-        {
-            TracyVkZoneTransient(m_context->handles.profiler_context, vk_zone, command_buffer,
-                                 "Delta retrieval", m_profiling_enabled);
+                data_size +=
+                    sizeof(number_t) * region.imageExtent.width * region.imageExtent.height;
+            }
+
+            create_vulkan_buffer(m_context.get(), data_size, &staging_buffer);
+
+            VkImageMemoryBarrier src_barrier, dst_barrier;
+            create_image_barrier(src_barrier, network_data.data_image.image, image_access_flags,
+                                 transfer_src_access, image_compute_layout, transfer_src_layout);
+            create_image_barrier(dst_barrier, network_data.data_image.image, transfer_src_access,
+                                 image_access_flags, transfer_src_layout, image_compute_layout);
 
             v.vkCmdPipelineBarrier(command_buffer, compute_stage, transfer_stage, 0, 0, nullptr, 0,
                                    nullptr, 1, &src_barrier);
 
-            v.vkCmdCopyImageToBuffer(command_buffer, delta_image.image, transfer_src_layout,
-                                     staging_buffer.buffer, 1, &image_copy);
+            v.vkCmdCopyImageToBuffer(command_buffer, network_data.data_image.image,
+                                     transfer_src_layout, staging_buffer.buffer,
+                                     (uint32_t)regions.size(), regions.data());
 
             v.vkCmdPipelineBarrier(command_buffer, transfer_stage, compute_stage, 0, 0, nullptr, 0,
                                    nullptr, 1, &dst_barrier);
@@ -1349,39 +1417,34 @@ namespace neuralnet::evaluators {
         end_and_submit_command_buffer(m_context.get(), m_objects.compute_queue, command_buffer,
                                       true, VK_NULL_HANDLE);
 
-        v.vkFreeCommandBuffers(m_context->handles.device, m_objects.command_pool, 1,
-                               &command_buffer);
+        v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
 
-        number_t* mapped = nullptr;
-        v.check_result(
-            vmaMapMemory(m_context->handles.allocator, staging_buffer.allocation, (void**)&mapped));
+        if (data.copy) {
+            number_t* mapped = nullptr;
+            v.check_result(
+                vmaMapMemory(handles.allocator, staging_buffer.allocation, (void**)&mapped));
 
-        deltas.resize(image_size.depth);
-        for (size_t z = 0; z < deltas.size(); z++) {
-            auto& layer = layers[z % layers.size()];
-            auto& delta = deltas[z];
+            size_t offset = 0;
+            for (auto& layer : layers) {
+                for (uint64_t c = 0; c < layer.size; c++) {
+                    size_t current_offset = offset + c * (layer.previous_size + 1);
+                    layer.biases[c] = mapped[current_offset];
 
-            delta.size = layer.size;
-            delta.previous_size = layer.previous_size;
-            delta.function = layer.function;
-            delta.biases.resize(delta.size);
-            delta.weights.resize(delta.size * delta.previous_size);
+                    copy(&mapped[current_offset + 1], &layer.weights[c * layer.previous_size],
+                         layer.previous_size * sizeof(number_t));
+                }
 
-            for (size_t y = 0; y < delta.size; y++) {
-                size_t current_offset = layer_size * z + neuron_size * y;
-                delta.biases[y] = mapped[current_offset];
-
-                size_t weight_offset = delta.previous_size * y;
-                copy(&mapped[current_offset + 1], &delta.weights[weight_offset],
-                     delta.size * sizeof(number_t));
+                offset += layer.size * layer.previous_size * sizeof(number_t);
             }
+
+            vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
+            destroy_vulkan_buffer(m_context.get(), &staging_buffer);
         }
 
-        vmaUnmapMemory(m_context->handles.allocator, staging_buffer.allocation);
         return true;
     }
 
-    number_t vulkan_evaluator::cost_function(number_t actual, number_t expected) {
+    number_t vulkan_evaluator::cost_function(number_t actual, number_t expected) const {
         ZoneScoped;
 
         // (x - y)^2
@@ -1502,7 +1565,7 @@ namespace neuralnet::evaluators {
         ZoneScoped;
 
         auto& data = m_network_data[network];
-        if (--data.references == 0) {
+        if (--data.references == 0 && !is_training()) {
             const auto& v = m_context->vtable;
             const auto& handles = m_context->handles;
 

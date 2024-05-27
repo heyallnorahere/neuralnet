@@ -4,7 +4,7 @@
 #include "include/buffers.glsl"
 #include "include/functions.glsl"
 
-layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 float A(float x, uint id) {
     switch (id) {

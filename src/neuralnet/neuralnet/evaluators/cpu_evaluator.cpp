@@ -37,7 +37,7 @@ namespace neuralnet::evaluators {
         }
     }
 
-    bool cpu_evaluator::is_result_ready(uint64_t result) {
+    bool cpu_evaluator::is_result_ready(uint64_t result) const {
         ZoneScoped;
         return m_results.find(result) != m_results.end();
     }
@@ -175,27 +175,48 @@ namespace neuralnet::evaluators {
         return key;
     }
 
-    bool cpu_evaluator::get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) {
+    bool cpu_evaluator::compose_deltas(const delta_composition_data_t& data) {
         ZoneScoped;
-
-        if (!is_result_ready(result)) {
-            return false;
+        for (uint64_t key : data.backprop_keys) {
+            if (!m_results.contains(key)) {
+                return false;
+            }
         }
 
-        auto& cpu_result = m_results[result];
-        if (cpu_result.type != cpu_result_type::backprop) {
-            return false;
-        }
+        auto& layers = data.nn->get_layers();
+        for (uint64_t key : data.backprop_keys) {
+            const auto& result = m_results.at(key);
+            if (result.nn != data.nn) {
+                throw std::runtime_error("network mismatch!");
+            }
 
-        deltas.resize(cpu_result.results.size());
-        for (size_t i = 0; i < deltas.size(); i++) {
-            deltas[i] = *(layer_t*)cpu_result.results[i];
+            for (size_t i = 0; i < layers.size(); i++) {
+                auto& layer = layers[i];
+                for (size_t j = 0; j < result.passes; j++) {
+                    auto delta = (layer_t*)result.results[j * layers.size() + i];
+                    if (delta->size != layer.size || delta->previous_size != layer.previous_size) {
+                        throw std::runtime_error("delta/layer size mismatch!");
+                    }
+
+                    for (size_t c = 0; c < layer.size; c++) {
+                        number_t& bias = network::get_bias_address(layer, c);
+                        number_t bias_delta = network::get_bias(*delta, c);
+                        bias -= bias_delta * data.delta_scalar;
+
+                        for (size_t p = 0; p < layer.previous_size; p++) {
+                            number_t& weight = network::get_weight_address(layer, c, p);
+                            number_t weight_delta = network::get_weight(*delta, c, p);
+                            weight -= weight_delta * data.delta_scalar;
+                        }
+                    }
+                }
+            }
         }
 
         return true;
     }
 
-    number_t cpu_evaluator::cost_function(number_t actual, number_t expected) {
+    number_t cpu_evaluator::cost_function(number_t actual, number_t expected) const {
         return C(actual, expected);
     }
 

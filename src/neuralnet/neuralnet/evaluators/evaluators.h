@@ -33,9 +33,9 @@ namespace neuralnet::evaluators {
         cpu_evaluator() { m_key = 0; }
         virtual ~cpu_evaluator() override = default;
 
-        virtual evaluator_type get_type() override { return evaluator_type::cpu; }
+        virtual evaluator_type get_type() const override { return evaluator_type::cpu; }
 
-        virtual bool is_result_ready(uint64_t result) override;
+        virtual bool is_result_ready(uint64_t result) const override;
         virtual bool free_result(uint64_t result) override;
 
         virtual std::optional<uint64_t> begin_eval(const network* nn,
@@ -50,9 +50,9 @@ namespace neuralnet::evaluators {
         virtual std::optional<uint64_t> begin_backprop(const network* nn,
                                                        const backprop_data_t& data) override;
 
-        virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override;
+        virtual bool compose_deltas(const delta_composition_data_t& data) override;
 
-        virtual number_t cost_function(number_t actual, number_t expected) override;
+        virtual number_t cost_function(number_t actual, number_t expected) const override;
 
     private:
         void eval(const number_t* inputs, cpu_result_t& result);
@@ -238,9 +238,9 @@ namespace neuralnet::evaluators {
         vulkan_evaluator();
         virtual ~vulkan_evaluator() override;
 
-        virtual evaluator_type get_type() override { return evaluator_type::vulkan; }
+        virtual evaluator_type get_type() const override { return evaluator_type::vulkan; }
 
-        virtual bool is_result_ready(uint64_t result) override;
+        virtual bool is_result_ready(uint64_t result) const override;
         virtual bool free_result(uint64_t result) override;
 
         virtual std::optional<uint64_t> begin_eval(const network* nn,
@@ -255,9 +255,9 @@ namespace neuralnet::evaluators {
         virtual std::optional<uint64_t> begin_backprop(const network* nn,
                                                        const backprop_data_t& data) override;
 
-        virtual bool get_backprop_result(uint64_t result, std::vector<layer_t>& deltas) override;
+        virtual bool compose_deltas(const delta_composition_data_t& data) override;
 
-        virtual number_t cost_function(number_t actual, number_t expected) override;
+        virtual number_t cost_function(number_t actual, number_t expected) const override;
 
     private:
         void init_vulkan();
