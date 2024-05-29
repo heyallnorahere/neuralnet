@@ -28,6 +28,13 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
+        },
+        {
+            "name": "analysis",
+            "inherits": "default",
+            "cacheVariables": {
+                "SHADERC_SKIP_COPYRIGHT_CHECK": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -45,6 +52,12 @@
             "inherits": "default",
             "configurePreset": "debug",
             "configuration": "Debug"
+        },
+        {
+            "name": "analysis",
+            "inherits": "default",
+            "configurePreset": "analysis",
+            "configuration": "analysis"
         }
     ]
 }
