@@ -10,7 +10,7 @@ namespace neuralnet {
         file_decompressor(const file_decompressor&) = delete;
         file_decompressor& operator=(const file_decompressor&) = delete;
 
-        off64_t get_position() const;
+        size_t get_position() const;
         int32_t read(void* buffer, uint32_t buffer_size);
 
     private:
@@ -25,7 +25,7 @@ namespace neuralnet {
         file_compressor(const file_compressor&) = delete;
         file_compressor& operator=(const file_compressor&) = delete;
 
-        off64_t get_position() const;
+        size_t get_position() const;
         int32_t write(const void* buffer, uint32_t buffer_size);
 
     private:

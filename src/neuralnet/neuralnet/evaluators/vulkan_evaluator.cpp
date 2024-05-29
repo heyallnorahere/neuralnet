@@ -6,12 +6,11 @@
 namespace neuralnet::evaluators {
     static std::unique_ptr<vulkan_context_t> s_next_context;
 
-    // see resources/glsl/includes/buffers.glsl
+    // see resources/glsl/include/buffers.glsl
     static constexpr size_t max_layers = 32;
-    static constexpr size_t max_neurons_per_layer = 1024;
 
     static constexpr VkFormat image_format = VK_FORMAT_R32_SFLOAT;
-    static constexpr VkImageTiling image_tiling = VK_IMAGE_TILING_LINEAR;
+    static constexpr VkImageTiling image_tiling = VK_IMAGE_TILING_OPTIMAL;
     static constexpr VkImageAspectFlags image_aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT;
     static constexpr VkImageUsageFlags image_usage = VK_IMAGE_USAGE_STORAGE_BIT |
                                                      VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -900,11 +899,25 @@ namespace neuralnet::evaluators {
 
     vulkan_evaluator::~vulkan_evaluator() {
         ZoneScoped;
-
         set_training(false);
-        for (auto& [network, data] : m_network_data) {
+
+        std::vector<uint64_t> results;
+        for (auto& [id, data] : m_results) {
+            results.push_back(id);
+        }
+
+        for (uint64_t id : results) {
+            free_result(id);
+        }
+
+        std::vector<const network*> networks;
+        for (auto& [nn, data] : m_network_data) {
             data.references = 1;
-            remove_network_reference(network);
+            networks.push_back(nn);
+        }
+
+        for (auto nn : networks) {
+            remove_network_reference(nn);
         }
 
         shutdown_vulkan();
@@ -1589,8 +1602,8 @@ namespace neuralnet::evaluators {
             const auto& v = m_context->vtable;
             const auto& handles = m_context->handles;
 
-            v.vkFreeDescriptorSets(handles.device, m_objects.descriptor_pool, 1,
-                                   &data.descriptor_set);
+            v.check_result(v.vkFreeDescriptorSets(handles.device, m_objects.descriptor_pool, 1,
+                                                  &data.descriptor_set));
 
             destroy_vulkan_image(m_context.get(), &data.activations);
             destroy_vulkan_image(m_context.get(), &data.z);
@@ -1606,7 +1619,7 @@ namespace neuralnet::evaluators {
         add_network_reference(network);
         const auto& layers = network->get_layers();
 
-        uint64_t input_neurons = layers[0].size;
+        uint64_t input_neurons = layers[0].previous_size;
         size_t input_count = inputs.size();
 
         uint64_t id = m_current_pass_id++;
@@ -1738,6 +1751,7 @@ namespace neuralnet::evaluators {
         v.vkUpdateDescriptorSets(handles.device, (uint32_t)writes.size(), writes.data(), 0,
                                  nullptr);
 
+        destroy_vulkan_buffer(m_context.get(), &staging_buffer);
         return id;
     }
 

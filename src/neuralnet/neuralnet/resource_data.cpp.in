@@ -1,1 +1,1 @@
-{ fs::path("${relative_path}"), std::shared_ptr<resource>(new resource("${relative_path}", ${data})) },
+{ fs::path(${relative_path}), std::shared_ptr<resource>(new resource(${relative_path}, ${data})) },

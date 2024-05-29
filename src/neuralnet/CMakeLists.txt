@@ -59,7 +59,7 @@ if(NN_SUPPORT_VULKAN)
 endif()
 
 foreach(RESOURCE_PATH ${NN_RESOURCES})
-    string(APPEND NN_RESOURCE_STRING ":${RESOURCE_PATH}")
+    string(APPEND NN_RESOURCE_STRING ",${RESOURCE_PATH}")
 endforeach()
 
 set(NN_GENERATOR_COMMAND nn_resource_generator

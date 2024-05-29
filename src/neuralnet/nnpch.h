@@ -16,6 +16,7 @@
 #include <bit>
 #include <fstream>
 #include <sstream>
+#include <functional>
 
 #if __has_include(<filesystem>)
 #include <filesystem>

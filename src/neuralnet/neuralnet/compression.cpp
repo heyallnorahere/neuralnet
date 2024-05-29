@@ -6,7 +6,7 @@
 namespace neuralnet {
     file_decompressor::file_decompressor(const neuralnet::fs::path& path) {
         ZoneScoped;
-        m_file = gzopen64(path.string().c_str(), "rb");
+        m_file = gzopen(path.string().c_str(), "rb");
     }
 
     file_decompressor::~file_decompressor() {
@@ -14,9 +14,9 @@ namespace neuralnet {
         gzclose(m_file);
     }
 
-    off64_t file_decompressor::get_position() const {
+    size_t file_decompressor::get_position() const {
         ZoneScoped;
-        return gztell64(m_file);
+        return gztell(m_file);
     }
 
     int32_t file_decompressor::read(void* buffer, uint32_t buffer_size) {
@@ -26,7 +26,7 @@ namespace neuralnet {
 
     file_compressor::file_compressor(const neuralnet::fs::path& path) {
         ZoneScoped;
-        m_file = gzopen64(path.string().c_str(), "wb");
+        m_file = gzopen(path.string().c_str(), "wb");
     }
 
     file_compressor::~file_compressor() {
@@ -34,9 +34,9 @@ namespace neuralnet {
         gzclose(m_file);
     }
 
-    off64_t file_compressor::get_position() const {
+    size_t file_compressor::get_position() const {
         ZoneScoped;
-        return gztell64(m_file);
+        return gztell(m_file);
     }
 
     int32_t file_compressor::write(const void* buffer, uint32_t buffer_size) {

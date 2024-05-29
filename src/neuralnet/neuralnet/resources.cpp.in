@@ -7,10 +7,13 @@ namespace neuralnet {
     };
 
     const resource& resource::get(const fs::path& path) {
-        if (!s_resources.contains(path)) {
-            throw std::runtime_error("no such resource: " + path.string());
+        auto preferred = path;
+        preferred.make_preferred();
+        
+        if (!s_resources.contains(preferred)) {
+            throw std::runtime_error("no such resource: " + preferred.string());
         }
 
-        return *s_resources.at(path);
+        return *s_resources.at(preferred);
     }
 }

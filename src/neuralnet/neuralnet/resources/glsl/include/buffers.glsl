@@ -1,5 +1,4 @@
 #define MAX_LAYERS 32
-#define MAX_NEURONS_PER_LAYER 1024
 
 #define SIGMOID 0
 

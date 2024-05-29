@@ -108,12 +108,14 @@ private:
         uint8_t int_buffer[sizeof(uint32_t)];
 
         // see mnist manual
-        if (read_uint32_big_endian(images_file, int_buffer) != 0x803) {
+        uint32_t images_number = read_uint32_big_endian(images_file, int_buffer);
+        if (images_number != 0x803) {
             throw std::runtime_error("invalid image magic number!");
         }
 
         // again, see mnist manual
-        if (read_uint32_big_endian(labels_file, int_buffer) != 0x801) {
+        uint32_t labels_number = read_uint32_big_endian(labels_file, int_buffer);
+        if (labels_number != 0x801) {
             throw std::runtime_error("invalid label magic number!");
         }
 
@@ -135,7 +137,7 @@ private:
         std::vector<uint8_t> label_data(sample_count);
 
         size_t image_bytes_read = 0;
-        while (true) {
+        while (image_bytes_read < image_data.size()) {
             int32_t bytes_read = images_file.read(&image_data[image_bytes_read],
                                                   (uint32_t)(image_data.size() - image_bytes_read));
             if (bytes_read <= 0) {
@@ -146,7 +148,7 @@ private:
         }
 
         size_t label_bytes_read = 0;
-        while (true) {
+        while (label_bytes_read < label_data.size()) {
             int32_t bytes_read = labels_file.read(&label_data[label_bytes_read],
                                                   (uint32_t)(label_data.size() - label_bytes_read));
             if (bytes_read <= 0) {
@@ -186,8 +188,6 @@ static number_t string_to_number(const std::string& string) {
         return (number_t)std::stof(string);
     case sizeof(double):
         return (number_t)std::stod(string);
-    case sizeof(long double):
-        return (number_t)std::stold(string);
     }
 
     return 0;
@@ -200,7 +200,7 @@ int main(int argc, const char** argv) {
     settings.batch_size = 100;
     settings.eval_batch_size = 100;
     settings.learning_rate = 0.1;
-    settings.minimum_average_cost = 1;
+    settings.minimum_average_cost = 0.01;
 
     auto evaluator = neuralnet::unique(neuralnet::evaluators::choose_evaluator());
     auto dataset = neuralnet::unique(new mnist_dataset);

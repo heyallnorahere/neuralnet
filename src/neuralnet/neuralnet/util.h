@@ -32,7 +32,7 @@ namespace neuralnet {
         if (block == nullptr) {
             return;
         }
-        
+
         freemem(((void**)block)[-1]);
     }
 
@@ -40,15 +40,9 @@ namespace neuralnet {
     inline void read_with_endianness(const void* data, T& result) {
         ZoneScoped;
 
-        if constexpr (std::endian::native == E) {
-            neuralnet::copy(data, &result, sizeof(T));
-        } else {
-            const uint8_t* first = (const uint8_t*)(const void*)data;
-            uint8_t* result_last = (uint8_t*)((size_t)&result + sizeof(T));
-
-            for (size_t i = 0; i < sizeof(T); i++) {
-                *(--result_last) = *(first++);
-            }
+        neuralnet::copy(data, &result, sizeof(T));
+        if constexpr (std::endian::native != E) {
+            std::reverse((uint8_t*)(void*)&result, (uint8_t*)((size_t)&result + sizeof(T)));
         }
     }
 
@@ -56,15 +50,9 @@ namespace neuralnet {
     inline void write_with_endianness(const T& data, void* result) {
         ZoneScoped;
 
-        if constexpr (std::endian::native == E) {
-            neuralnet::copy(&data, result, sizeof(T));
-        } else {
-            const uint8_t* first = (const uint8_t*)(const void*)&data;
-            uint8_t* result_last = (uint8_t*)((size_t)result + sizeof(T));
-
-            for (size_t i = 0; i < sizeof(T); i++) {
-                *(--result_last) = *(first++);
-            }
+        neuralnet::copy(&data, result, sizeof(T));
+        if constexpr (std::endian::native != E) {
+            std::reverse((uint8_t*)result, (uint8_t*)((size_t)result + sizeof(T)));
         }
     }
 

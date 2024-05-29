@@ -353,6 +353,10 @@ namespace neuralnet {
         }
 
         m_current_eval_index += batch_size;
+        for (uint64_t key : m_current_eval_keys) {
+            m_evaluator->free_result(key);
+        }
+
         m_current_eval_keys.clear();
         
         if (m_current_eval_index == sample_count) {

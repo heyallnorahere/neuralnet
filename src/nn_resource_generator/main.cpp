@@ -82,7 +82,7 @@ public:
     source_template& operator=(const source_template&) = delete;
 
     template <typename T>
-    void execute(const std::unordered_map<std::string, std::string>& tokens, T& stream) const {
+    void execute(const std::unordered_map<std::string, std::stringstream>& tokens, T& stream) const {
         std::string result = m_source;
         std::vector<token_t> token_map(m_tokens);
 
@@ -94,7 +94,7 @@ public:
                 throw std::runtime_error("no value for key " + token.name);
             }
 
-            std::string data = it->second;
+            std::string data = it->second.str();
             result.replace(token.offset, token.length, data);
 
             for (size_t j = i + 1; j < token_map.size(); j++) {
@@ -235,7 +235,7 @@ static void parse_cmake_list(const std::string& data, T& list) {
     size_t position = 0;
 
     while (true) {
-        size_t delimiter = data.find(':', position);
+        size_t delimiter = data.find(',', position);
         size_t length = delimiter != std::string::npos ? delimiter - position : delimiter;
 
         std::string substr = data.substr(position, length);
@@ -310,17 +310,17 @@ int main(int argc, const char** argv) {
             data_text << std::hex << std::setw(2) << std::setfill('0') << (int)data[i];
         }
 
-        std::unordered_map<std::string, std::string> data_tokens;
-        data_tokens["data"] = "{ " + data_text.str() + " }";
-        data_tokens["path"] = path.string();
-        data_tokens["relative_path"] = relative_path.string();
-        data_tokens["filename"] = path.filename().string();
+        std::unordered_map<std::string, std::stringstream> data_tokens;
+        data_tokens["data"] << "{ " << data_text.str() << " }";
+        data_tokens["path"] << path;
+        data_tokens["relative_path"] << relative_path;
+        data_tokens["filename"] << path.filename();
 
         data_template->execute(data_tokens, content);
     }
 
-    std::unordered_map<std::string, std::string> tokens;
-    tokens["content"] = content.str();
+    std::unordered_map<std::string, std::stringstream> tokens;
+    tokens["content"] << content.str();
 
     std::optional<fs::path> output_file;
     if (args.parameters.contains("output")) {
