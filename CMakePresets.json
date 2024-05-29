@@ -14,7 +14,7 @@
                 "BUILD_SHARED_LIBS": "OFF",
                 "SKIP_INSTALL_ALL": "ON",
 
-                "TRACY_ENABLE": "OFF",
+                "TRACY_ENABLE": "ON",
                 "TRACY_NO_EXIT": "ON",
                 "TRACY_CALLSTACK": "ON",
                 "TRACY_FIBERS": "ON",
@@ -26,8 +26,7 @@
             "name": "debug",
             "inherits": "default",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "TRACY_ENABLE": "ON"
+                "CMAKE_BUILD_TYPE": "Debug"
             }
         }
     ],

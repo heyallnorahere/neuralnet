@@ -1,0 +1,12 @@
+name: mnist
+services:
+  mnist:
+    image: neuralnet:latest
+    build: .
+    entrypoint:
+      - /bin/bash
+      - /neuralnet/network
+      - mnist
+    volumes:
+      - ./data:/neuralnet/data
+      - /dev:/dev
