@@ -133,7 +133,7 @@ private:
             throw std::runtime_error("input count mismatch!");
         }
 
-        std::vector<uint8_t> image_data(sample_count * row_count * column_count);
+        std::vector<uint8_t> image_data((size_t)sample_count * row_count * column_count);
         std::vector<uint8_t> label_data(sample_count);
 
         size_t image_bytes_read = 0;
