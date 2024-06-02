@@ -38,6 +38,16 @@ namespace neuralnet {
         return groups.find(group) != groups.end();
     }
 
+    void trainer::on_eval_batch_complete(const eval_callback_t& callback) {
+        ZoneScoped;
+        m_eval_callbacks.push_back(callback);
+    }
+
+    void trainer::on_eval_batch_complete(eval_callback_t&& callback) {
+        ZoneScoped;
+        m_eval_callbacks.push_back(callback);
+    }
+
     void trainer::start() {
         ZoneScoped;
 
@@ -97,7 +107,9 @@ namespace neuralnet {
                 auto cost = compute_test_cost();
                 if (cost) {
                     number_t cost_value = cost.value();
-                    std::cout << "cost: " << cost_value << std::endl;
+                    for (const auto& callback : m_eval_callbacks) {
+                        callback(cost_value);
+                    }
 
                     if (cost_value < m_current_settings.minimum_average_cost) {
                         switch (m_phase) {
@@ -222,8 +234,6 @@ namespace neuralnet {
         }
 
         m_current_eval_keys.clear();
-        std::cout << "neuralnet: finished batch " << (m_current_batch - 1) << std::endl;
-
         return is_last_batch;
     }
 
@@ -358,7 +368,7 @@ namespace neuralnet {
         }
 
         m_current_eval_keys.clear();
-        
+
         if (m_current_eval_index == sample_count) {
             return true;
         }

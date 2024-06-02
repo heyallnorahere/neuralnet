@@ -73,36 +73,21 @@ namespace neuralnet::evaluators {
         return true;
     }
 
-    static std::unordered_map<void*, size_t> s_vulkan_block_sizes;
-
     static void* vk_alloc(void* pUserData, size_t size, size_t alignment,
                           VkSystemAllocationScope allocationScope) {
         ZoneScoped;
-
-        void* ptr = alloc(size);
-        s_vulkan_block_sizes.insert(std::make_pair(ptr, size));
-
-        return ptr;
+        return alloc(size);
     }
 
     static void vk_free(void* pUserData, void* pMemory) {
         ZoneScoped;
-
         freemem(pMemory);
-        s_vulkan_block_sizes.erase(pMemory);
     }
 
     static void* vk_realloc(void* pUserData, void* pOriginal, size_t size, size_t alignment,
                             VkSystemAllocationScope allocationScope) {
         ZoneScoped;
-
-        size_t original_size = s_vulkan_block_sizes.at(pOriginal);
-        void* new_ptr = vk_alloc(pUserData, size, alignment, allocationScope);
-
-        std::memcpy(new_ptr, pOriginal, std::min(original_size, size));
-        vk_free(pUserData, pOriginal);
-
-        return new_ptr;
+        return reallocate(pOriginal, size);
     }
 
 #define NN_LOAD_VK_GLOBAL(vtable, name)                                                            \
@@ -788,6 +773,7 @@ namespace neuralnet::evaluators {
         }
     }
 
+#ifdef TRACY_ENABLE
     static void create_profiler(vulkan_context_t* context, vulkan_evaluator_objects_t* objects) {
         ZoneScoped;
 
@@ -809,6 +795,7 @@ namespace neuralnet::evaluators {
 
         v.vkFreeCommandBuffers(handles.device, objects->command_pool, 1, &command_buffer);
     }
+#endif
 
     void vulkan_evaluator::init_vulkan() {
         ZoneScoped;
@@ -841,8 +828,12 @@ namespace neuralnet::evaluators {
         if (m_context->handles.context_provided) {
             m_profiling_enabled = m_context->handles.profiler_context != nullptr;
         } else {
+#ifdef TRACY_ENABLE
             m_profiling_enabled = true;
             create_profiler(m_context.get(), &m_objects);
+#else
+            m_profiling_enabled = false;
+#endif
 
             create_allocator(m_context.get());
         }

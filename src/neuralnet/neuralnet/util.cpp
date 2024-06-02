@@ -14,6 +14,17 @@ namespace neuralnet {
         TracyFree(block);
     }
 
+    void* reallocate(void* old_ptr, size_t new_size) {
+        void* new_ptr = std::realloc(old_ptr, new_size);
+
+        if (new_ptr != old_ptr) {
+            TracyFree(old_ptr);
+            TracyAlloc(new_ptr, new_size);
+        }
+
+        return new_ptr;
+    }
+
     void copy(const void* src, void* dst, size_t size) { std::memcpy(dst, src, size); }
 
     namespace random {

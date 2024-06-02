@@ -19,8 +19,7 @@
                 "TRACY_CALLSTACK": "ON",
                 "TRACY_FIBERS": "ON",
 
-                "ZLIB_BUILD_EXAMPLES": "OFF",
-                "SHADERC_SKIP_TESTS": "ON"
+                "ZLIB_BUILD_EXAMPLES": "OFF"
             }
         },
         {
@@ -28,6 +27,14 @@
             "inherits": "default",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "docker",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "TRACY_ENABLE": "OFF"
             }
         },
         {
@@ -52,6 +59,12 @@
             "name": "debug",
             "inherits": "default",
             "configurePreset": "debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "docker",
+            "inherits": "default",
+            "configurePreset": "docker",
             "configuration": "Debug"
         },
         {

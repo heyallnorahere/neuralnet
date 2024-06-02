@@ -193,6 +193,14 @@ static number_t string_to_number(const std::string& string) {
     return 0;
 }
 
+static void save_network(neuralnet::loader& loader, std::unique_ptr<neuralnet::network>& network) {
+    ZoneScoped;
+
+    loader.load_from_memory(network.get());
+    loader.save_to_file();
+    loader.release_network();
+}
+
 int main(int argc, const char** argv) {
     ZoneScoped;
 
@@ -212,32 +220,31 @@ int main(int argc, const char** argv) {
 
     std::unique_ptr<neuralnet::network> network;
     neuralnet::loader loader(neuralnet::fs::current_path() / "network");
-    
+
     if (loader.load_from_file()) {
         network = neuralnet::unique(loader.release_network());
     } else {
-        static const std::vector<uint64_t> layer_sizes = { dataset->get_input_count(), 128, 64,
+        static const std::vector<uint64_t> layer_sizes = { dataset->get_input_count(), 128, 64, 32,
                                                            dataset->get_output_count() };
 
         network = neuralnet::unique(
             neuralnet::network::randomize(layer_sizes, neuralnet::activation_function::sigmoid));
 
-        loader.load_from_memory(network.get());
-        loader.save_to_file();
-        loader.release_network();
+        save_network(loader, network);
     }
 
     auto trainer = neuralnet::unique(
         new neuralnet::trainer(network.get(), evaluator.get(), dataset.get(), settings));
 
+    trainer->on_eval_batch_complete([&](number_t cost) {
+        std::cout << cost << std::endl;
+        save_network(loader, network);
+    });
+
     trainer->start();
     while (trainer->is_running()) {
         trainer->update();
     }
-
-    loader.load_from_memory(network.get());
-    loader.save_to_file();
-    loader.release_network();
 
     return 0;
 }

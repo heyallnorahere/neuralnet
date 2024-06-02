@@ -11,6 +11,7 @@ namespace neuralnet {
 
     NN_API void* alloc(size_t size);
     NN_API void freemem(void* block);
+    NN_API void* reallocate(void* old_ptr, size_t new_size);
     NN_API void copy(const void* src, void* dst, size_t size);
 
     // https://stackoverflow.com/questions/38088732/explanation-to-aligned-malloc-implementation
