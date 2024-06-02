@@ -5,6 +5,7 @@ on:
     tags: v*
 permissions:
   contents: read
+  attestations: write
   packages: write
   id-token: write
 env:
