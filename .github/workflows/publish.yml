@@ -27,9 +27,9 @@ jobs:
       with:
         context: .
         push: true
-        tags:
-        - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-        - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
     - name: generate attestation
       uses: actions/attest-build-provenance@v1
       with:
