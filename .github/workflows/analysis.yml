@@ -32,14 +32,14 @@ jobs:
       with:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
-    - if: matrix.build-mode == 'manual'
+    - name: build
+      if: matrix.build-mode == 'manual'
       shell: bash
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake build-essential
         cmake --preset analysis
         cmake --build --preset analysis
-
     - name: analyze code
       uses: github/codeql-action/analyze@v3
       with:

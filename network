@@ -6,7 +6,7 @@ WORKING_DIRECTORY="$SCRIPT_DIR/data/$NETWORK_NAME"
 EXECUTABLE_PATH="$SCRIPT_DIR/build/src/networks/$NETWORK_NAME"
 
 if [ -z "$NETWORK_NAME" ]; then
-    echo "No network name provided! Exiting..."
+    echo "Usage: network [NETWORK] ..."
     exit 1
 fi
 

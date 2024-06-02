@@ -75,7 +75,7 @@ namespace neuralnet::evaluators {
         ZoneScoped;
 
         const auto& layers = nn->get_layers();
-        if (layers.empty() || inputs.size() != layers[0].previous_size) {
+        if (layers.empty()) {
             return {};
         }
 
@@ -152,8 +152,7 @@ namespace neuralnet::evaluators {
         }
 
         auto eval_result = (cpu_result_t*)data.eval_outputs;
-        if (eval_result->type != cpu_result_type::eval ||
-            eval_result->results.size() != layers.size() + 1 || eval_result->nn != nn) {
+        if (eval_result->type != cpu_result_type::eval || eval_result->nn != nn) {
             return {};
         }
 
@@ -260,7 +259,7 @@ namespace neuralnet::evaluators {
                 void* first_layer = alloc(first_layer_size);
 
                 copy(inputs, first_layer, first_layer_size);
-                result.results[0] = first_layer;
+                result.results.push_back(first_layer);
 
                 continue;
             }
@@ -283,6 +282,7 @@ namespace neuralnet::evaluators {
     void cpu_evaluator::backprop(const cpu_backprop_data_t& data, cpu_result_t& result,
                                  size_t offset) {
         ZoneScoped;
+        size_t first_index = result.results.size();
 
         const auto& layers = result.nn->get_layers();
         for (int64_t i = layers.size() - 1; i >= 0; i--) {
@@ -309,7 +309,7 @@ namespace neuralnet::evaluators {
 
                     size_t next_layer_index = i + 1;
                     const auto& next_layer = layers[next_layer_index];
-                    const auto& next_delta = *(const layer_t*)result.results[next_layer_index];
+                    const auto& next_delta = *(const layer_t*)result.results[first_index];
 
                     for (size_t n = 0; n < next_layer.size; n++) {
                         number_t weight = network::get_weight(next_layer, n, c);
@@ -329,7 +329,9 @@ namespace neuralnet::evaluators {
                 }
             }
 
-            result.results.push_back(delta);
+            auto it = result.results.begin();
+            std::advance(it, first_index);
+            result.results.insert(it, delta);
         }
     }
 } // namespace neuralnet::evaluators
