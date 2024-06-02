@@ -5,7 +5,7 @@ on:
     tags: v*
 permissions:
   contents: read
-  pages: write
+  packages: write
   id-token: write
 env:
   REGISTRY: ghcr.io
