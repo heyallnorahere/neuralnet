@@ -19,7 +19,8 @@
                 "TRACY_CALLSTACK": "ON",
                 "TRACY_FIBERS": "ON",
 
-                "ZLIB_BUILD_EXAMPLES": "OFF"
+                "ZLIB_BUILD_EXAMPLES": "OFF",
+                "SHADERC_SKIP_TESTS": "ON"
             }
         },
         {
