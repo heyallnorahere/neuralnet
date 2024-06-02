@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+FROM ubuntu:latest
 
 LABEL org.opencontainers.image.source=https://github.com/heyallnorahere/neuralnet
 LABEL org.opencontainers.image.description="neuralnet linux build"

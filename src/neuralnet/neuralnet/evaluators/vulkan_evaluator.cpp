@@ -79,7 +79,7 @@ namespace neuralnet::evaluators {
                           VkSystemAllocationScope allocationScope) {
         ZoneScoped;
 
-        void* ptr = aligned_alloc(size, alignment);
+        void* ptr = alloc(size);
         s_vulkan_block_sizes.insert(std::make_pair(ptr, size));
 
         return ptr;
@@ -88,7 +88,7 @@ namespace neuralnet::evaluators {
     static void vk_free(void* pUserData, void* pMemory) {
         ZoneScoped;
 
-        aligned_free(pMemory);
+        freemem(pMemory);
         s_vulkan_block_sizes.erase(pMemory);
     }
 
