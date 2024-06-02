@@ -6,7 +6,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  IMAGE_TAG: ${{ startsWith(github.ref, 'refs/heads/') && github.head_commit.head_id || github.ref_name }}
+  IMAGE_TAG: ${{ startsWith(github.ref, 'refs/heads/') && github.sha || github.ref_name }}
 jobs:
   publish:
     runs-on: ubuntu-latest
