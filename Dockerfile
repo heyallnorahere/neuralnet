@@ -9,7 +9,7 @@ RUN apt-get install -y git cmake build-essential libvulkan1
 
 WORKDIR /neuralnet
 COPY . .
-RUN rm -rf build
+RUN rm -rf build data
 RUN cmake --preset docker
 RUN cmake --build --preset docker
 

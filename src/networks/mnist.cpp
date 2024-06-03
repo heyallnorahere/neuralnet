@@ -10,6 +10,9 @@
 #include <neuralnet/resources.h>
 using number_t = neuralnet::number_t;
 
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+
 struct group_paths_t {
     neuralnet::fs::path images, labels;
 };
@@ -201,6 +204,34 @@ static void save_network(neuralnet::loader& loader, std::unique_ptr<neuralnet::n
     loader.release_network();
 }
 
+static void load_settings(neuralnet::trainer_settings_t& settings) {
+    ZoneScoped;
+    std::ifstream file(neuralnet::fs::current_path() / "trainer.json");
+
+    if (!file.is_open()) {
+        return;
+    }
+
+    json data;
+    file >> data;
+
+    if (data.contains("batch_size")) {
+        settings.batch_size = data["batch_size"].get<uint64_t>();
+    }
+
+    if (data.contains("eval_batch_size")) {
+        settings.eval_batch_size = data["eval_batch_size"].get<uint64_t>();
+    }
+
+    if (data.contains("learning_rate")) {
+        settings.learning_rate = data["learning_rate"].get<number_t>();
+    }
+
+    if (data.contains("minimum_average_cost")) {
+        settings.minimum_average_cost = data["minimum_average_cost"].get<number_t>();
+    }
+}
+
 int main(int argc, const char** argv) {
     ZoneScoped;
 
@@ -209,6 +240,7 @@ int main(int argc, const char** argv) {
     settings.eval_batch_size = 100;
     settings.learning_rate = 0.1;
     settings.minimum_average_cost = 0.01;
+    load_settings(settings);
 
     auto evaluator = neuralnet::unique(neuralnet::evaluators::choose_evaluator());
     auto dataset = neuralnet::unique(new mnist_dataset);
