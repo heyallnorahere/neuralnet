@@ -217,7 +217,7 @@ namespace neuralnet::evaluators {
 
         VmaAllocationCreateInfo alloc_info{};
         alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-        alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+        alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
         context->vtable.check_result(vmaCreateBuffer(context->handles.allocator, &create_info,
                                                      &alloc_info, &buffer->buffer,
@@ -987,18 +987,32 @@ namespace neuralnet::evaluators {
                                               VkCommandBuffer command_buffer, bool wait,
                                               VkFence fence) {
         ZoneScoped;
+        const auto& v = context->vtable;
 
         VkSubmitInfo submit_info{};
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers = &command_buffer;
 
-        const auto& v = context->vtable;
+        VkFence used_fence = fence;
+        if (wait && used_fence == VK_NULL_HANDLE) {
+            VkFenceCreateInfo create_info{};
+            create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+            v.check_result(v.vkCreateFence(context->handles.device, &create_info,
+                                           &v.alloc_callbacks, &used_fence));
+        }
+
         v.check_result(v.vkEndCommandBuffer(command_buffer));
-        v.check_result(v.vkQueueSubmit(queue, 1, &submit_info, fence));
+        v.check_result(v.vkQueueSubmit(queue, 1, &submit_info, used_fence));
 
         if (wait) {
-            v.check_result(v.vkQueueWaitIdle(queue));
+            v.check_result(v.vkWaitForFences(context->handles.device, 1, &used_fence, VK_TRUE,
+                                             std::numeric_limits<uint64_t>::max()));
+
+            if (fence == VK_NULL_HANDLE) {
+                v.vkDestroyFence(context->handles.device, used_fence, &v.alloc_callbacks);
+            }
         }
     }
 
@@ -1195,6 +1209,7 @@ namespace neuralnet::evaluators {
 
         vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
         destroy_vulkan_buffer(m_context.get(), &staging_buffer);
+        v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
     }
 
     std::optional<uint64_t> vulkan_evaluator::begin_backprop(const network* nn,
@@ -1382,15 +1397,16 @@ namespace neuralnet::evaluators {
 
         vulkan_buffer_t staging_buffer;
         if (data.copy) {
+            TracyVkZoneTransient(handles.profiler_context, vk_zone, command_buffer,
+                                 "Copy network data to staging buffer", m_profiling_enabled);
+
             std::vector<VkBufferImageCopy> regions;
             size_t data_size = 0;
 
             for (size_t i = 0; i < layers.size(); i++) {
                 const auto& layer = layers[i];
 
-                auto& region = regions.emplace_back();
-                std::memset(&region, 0, sizeof(VkBufferImageCopy));
-
+                VkBufferImageCopy region{};
                 region.bufferOffset = (VkDeviceSize)data_size;
                 region.imageOffset.z = (uint32_t)i;
                 region.imageExtent.width = (uint32_t)layer.previous_size + 1;
@@ -1400,6 +1416,7 @@ namespace neuralnet::evaluators {
                 region.imageSubresource.baseArrayLayer = 0;
                 region.imageSubresource.layerCount = 1;
                 region.imageSubresource.mipLevel = 0;
+                regions.push_back(region);
 
                 data_size +=
                     sizeof(number_t) * region.imageExtent.width * region.imageExtent.height;
@@ -1427,9 +1444,9 @@ namespace neuralnet::evaluators {
         end_and_submit_command_buffer(m_context.get(), m_objects.compute_queue, command_buffer,
                                       true, VK_NULL_HANDLE);
 
-        v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
-
         if (data.copy) {
+            ZoneScopedN("Copy network data to layers");
+
             number_t* mapped = nullptr;
             v.check_result(
                 vmaMapMemory(handles.allocator, staging_buffer.allocation, (void**)&mapped));
@@ -1451,6 +1468,7 @@ namespace neuralnet::evaluators {
             destroy_vulkan_buffer(m_context.get(), &staging_buffer);
         }
 
+        v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
         return true;
     }
 

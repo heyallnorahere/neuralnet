@@ -179,12 +179,10 @@ namespace neuralnet {
             file_compressor data_file(m_directory / layer_descs.path);
             for (size_t b = 0; b < layer.biases.size(); b++) {
                 write_number(data_file, layer.biases[b], buffer);
-                std::cout << "bias " << b << ": " << layer.biases[b] << std::endl;
             }
 
             for (size_t w = 0; w < layer.weights.size(); w++) {
                 write_number(data_file, layer.weights[w], buffer);
-                std::cout << "weight " << w << ": " << layer.weights[w] << std::endl;
             }
         }
 
