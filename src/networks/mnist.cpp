@@ -254,8 +254,10 @@ int main(int argc, const char** argv) {
     neuralnet::loader loader(neuralnet::fs::current_path() / "network");
 
     if (loader.load_from_file()) {
+        std::cout << "loading network from disk" << std::endl;
         network = neuralnet::unique(loader.release_network());
     } else {
+        std::cout << "creating new network and saving to disk" << std::endl;
         static const std::vector<uint64_t> layer_sizes = { dataset->get_input_count(), 128, 64, 32,
                                                            dataset->get_output_count() };
 

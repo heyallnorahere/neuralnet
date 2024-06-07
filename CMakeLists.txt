@@ -12,6 +12,7 @@ if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     set(NN_IS_ROOT ON)
 endif()
 
+option(NN_SKIP_NEURALNET "Omit neuralnet build" OFF)
 option(NN_BUILD_NETWORKS "Build example network programs" ${NN_IS_ROOT})
 cmake_dependent_option(NN_BUILD_VULKAN "Build Vulkan headers & meta-loader. If NN_SUPPORT_VULKAN is enabled, and NN_BUILD_VULKAN is disabled, adding CMake targets for each library is required to build" ON "NOT NN_BUILD_NETWORKS" ON)
 
@@ -27,4 +28,6 @@ if(NN_SUPPORT_VULKAN)
 endif()
 
 add_subdirectory("vendor")
-add_subdirectory("src")
+if(NOT ${NN_SKIP_NEURALNET})
+    add_subdirectory("src")
+endif()

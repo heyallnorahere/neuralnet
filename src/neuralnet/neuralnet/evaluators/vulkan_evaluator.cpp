@@ -453,6 +453,7 @@ namespace neuralnet::evaluators {
             !device_supports_format(device, image_tiling, image_format, context)) {
             std::string message =
                 "Vulkan device \"" + std::string(properties.deviceName) + "\" not suitable";
+
             TracyMessageC(message.c_str(), message.length(), tracy::Color::Red);
 
             return 0;
@@ -513,6 +514,11 @@ namespace neuralnet::evaluators {
 
         context->handles.physical_device = devices[device_index];
         context->handles.compute_queue_index = compute_queue_index;
+
+        VkPhysicalDeviceProperties properties;
+        v.vkGetPhysicalDeviceProperties(context->handles.physical_device, &properties);
+
+        std::cout << "neuralnet: chose compute device: " << properties.deviceName << std::endl;
     }
 
     static void create_device(vulkan_context_t* context) {
@@ -1356,7 +1362,7 @@ namespace neuralnet::evaluators {
 
             if (i > 0) {
                 v.vkCmdPipelineBarrier(command_buffer, compute_stage, compute_stage, 0, 0, nullptr,
-                                       0, nullptr, 0, nullptr);
+                                       0, nullptr, 1, &sync_barrier);
             }
 
             v.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -1438,7 +1444,7 @@ namespace neuralnet::evaluators {
                          layer.previous_size * sizeof(number_t));
                 }
 
-                offset += layer.size * layer.previous_size * sizeof(number_t);
+                offset += layer.size * (layer.previous_size + 1);
             }
 
             vmaUnmapMemory(handles.allocator, staging_buffer.allocation);

@@ -79,6 +79,7 @@ namespace neuralnet {
 
     static constexpr std::endian serialization_endianness = std::endian::little;
     static number_t read_number(file_decompressor& file, std::vector<uint8_t>& buffer) {
+        ZoneScoped;
         if (buffer.size() < sizeof(number_t)) {
             buffer.resize(sizeof(number_t));
         }
@@ -91,6 +92,7 @@ namespace neuralnet {
     }
 
     static void write_number(file_compressor& file, number_t value, std::vector<uint8_t>& buffer) {
+        ZoneScoped;
         if (buffer.size() < sizeof(number_t)) {
             buffer.resize(sizeof(number_t));
         }
@@ -177,10 +179,12 @@ namespace neuralnet {
             file_compressor data_file(m_directory / layer_descs.path);
             for (size_t b = 0; b < layer.biases.size(); b++) {
                 write_number(data_file, layer.biases[b], buffer);
+                std::cout << "bias " << b << ": " << layer.biases[b] << std::endl;
             }
 
             for (size_t w = 0; w < layer.weights.size(); w++) {
                 write_number(data_file, layer.weights[w], buffer);
+                std::cout << "weight " << w << ": " << layer.weights[w] << std::endl;
             }
         }
 

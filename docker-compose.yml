@@ -1,8 +1,10 @@
 name: neuralnet
 services:
-  neuralnet:
+  mnist:
     image: neuralnet:latest
     build: .
     volumes:
       - ./data:/neuralnet/data
-      - /dev:/dev
+    entrypoint: /bin/bash /neuralnet/network mnist
+    restart: unless-stopped
+    runtime: nvidia
