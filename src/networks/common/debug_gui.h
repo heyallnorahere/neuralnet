@@ -1,7 +1,7 @@
 #pragma once
 #include <neuralnet.h>
 
-#if defined(NN_DEBUG) && defined(NN_SUPPORT_vulkan)
+#if defined(NN_DEBUG) && defined(NN_SUPPORT_vulkan) && defined(NN_BUILD_DEBUG_GUI)
 #define GUI_ENABLED
 
 #include <GLFW/glfw3.h>
@@ -85,12 +85,11 @@ namespace common {
         debug_gui& operator=(const debug_gui&) = delete;
 
         void update();
+        bool is_valid() const;
 
 #ifdef GUI_ENABLED
         void set_displayed_image(const gui_image_context_t& context);
 #endif
-
-        bool is_valid() const { return m_window != nullptr; }
 
     private:
 #ifdef GUI_ENABLED

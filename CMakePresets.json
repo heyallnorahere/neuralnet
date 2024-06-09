@@ -34,14 +34,16 @@
             "inherits": "default",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "TRACY_ENABLE": "OFF"
+                "TRACY_ENABLE": "OFF",
+                "NN_BUILD_DEBUG_GUI": "OFF"
             }
         },
         {
             "name": "analysis",
             "inherits": "default",
             "cacheVariables": {
-                "SHADERC_SKIP_COPYRIGHT_CHECK": "ON"
+                "SHADERC_SKIP_COPYRIGHT_CHECK": "ON",
+                "NN_BUILD_DEBUG_GUI": "OFF"
             }
         }
     ],

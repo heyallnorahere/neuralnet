@@ -18,6 +18,7 @@ cmake_dependent_option(NN_BUILD_VULKAN "Build Vulkan headers & meta-loader. If N
 
 option(NN_SUPPORT_CPU "Support CPU evaluation & training" ON)
 cmake_dependent_option(NN_SUPPORT_VULKAN "Support Vulkan compute shader evaluation & training" ON "VULKAN_AVAILABLE" OFF)
+cmake_dependent_option(NN_BUILD_DEBUG_GUI "Build debug GUI for networks" ON "NN_SUPPORT_VULKAN AND NN_BUILD_NETWORKS" OFF)
 
 if(NN_SUPPORT_CPU)
     list(APPEND NN_EVALUATORS cpu)

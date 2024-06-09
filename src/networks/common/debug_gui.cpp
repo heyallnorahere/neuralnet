@@ -117,6 +117,16 @@ namespace common {
 #endif
     }
 
+    bool debug_gui::is_valid() const {
+        ZoneScoped;
+
+#ifdef GUI_ENABLED
+        return m_window != nullptr;
+#else
+        return false;
+#endif
+    }
+
 #ifdef GUI_ENABLED
     void debug_gui::set_displayed_image(const gui_image_context_t& context) {
         ZoneScoped;
