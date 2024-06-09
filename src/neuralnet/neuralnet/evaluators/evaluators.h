@@ -64,13 +64,24 @@ namespace neuralnet::evaluators {
 #endif
 
 #ifdef NN_SUPPORT_vulkan
+    struct vulkan_context_t;
+    using user_callback_t = void(*)(vulkan_context_t* context);
+
+    struct vulkan_user_callbacks_t {
+        void* user_data;
+        user_callback_t device_chosen;
+        user_callback_t init_finished;
+    };
+
     struct vulkan_vtable_t {
         // no struct vtable, memset is fine
         vulkan_vtable_t() { std::memset(this, 0, sizeof(vulkan_vtable_t)); }
 
         void (*check_result)(VkResult result);
         PFN_vkDebugUtilsMessengerCallbackEXT debug_callback;
+
         VkAllocationCallbacks alloc_callbacks;
+        vulkan_user_callbacks_t user_callbacks;
 
         // vkGetXXXXXProcAddr
         NN_DECLARE_VK_FUNCTION(vkGetInstanceProcAddr);
@@ -165,8 +176,9 @@ namespace neuralnet::evaluators {
         TracyVkCtx profiler_context;
 
         uint32_t compute_queue_index;
-        std::unordered_set<uint32_t> shared_queue_indices;
         VkImageUsageFlags additional_image_usage;
+        std::unordered_set<uint32_t> shared_queue_indices;
+        std::unordered_set<std::string> instance_extensions, device_extensions;
     };
 
     struct vulkan_context_t {
@@ -259,6 +271,10 @@ namespace neuralnet::evaluators {
 
         virtual number_t cost_function(number_t actual, number_t expected) const override;
 
+        vulkan_context_t* get_context();
+        vulkan_network_data_t* get_network_data(const network* network);
+        vulkan_pass_data_t* get_pass_data(uint64_t result);
+
     private:
         void init_vulkan();
         void shutdown_vulkan();
@@ -269,7 +285,6 @@ namespace neuralnet::evaluators {
         void remove_pass_reference(uint64_t pass);
         uint64_t new_pass(const network* network, const std::vector<number_t>& inputs);
 
-        vulkan_pass_data_t* get_pass_ptr(uint64_t result);
 
         std::unique_ptr<vulkan_context_t> m_context;
         vulkan_evaluator_objects_t m_objects;

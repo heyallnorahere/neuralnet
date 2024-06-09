@@ -108,7 +108,7 @@ namespace neuralnet::evaluators {
         if (vtable.check_result == nullptr) {
             vtable.check_result = [](VkResult result) {
                 if (result != VK_SUCCESS) {
-                    throw std::runtime_error("Non-success error code received!");
+                    throw std::runtime_error("Non-success Vulkan result received!");
                 }
             };
         }
@@ -327,7 +327,8 @@ namespace neuralnet::evaluators {
 
         std::vector<const char*> used_extensions, used_layers;
         for (const auto& extension : extensions) {
-            if (requested_extensions.find(extension.extensionName) == requested_extensions.end()) {
+            if (!requested_extensions.contains(extension.extensionName) &&
+                !context->handles.instance_extensions.contains(extension.extensionName)) {
                 continue;
             }
 
@@ -335,7 +336,7 @@ namespace neuralnet::evaluators {
         }
 
         for (const auto& layer : layers) {
-            if (requested_layers.find(layer.layerName) == requested_layers.end()) {
+            if (!requested_layers.contains(layer.layerName)) {
                 continue;
             }
 
@@ -563,7 +564,8 @@ namespace neuralnet::evaluators {
 
         std::vector<const char*> used_extensions;
         for (const auto& extension : extensions) {
-            if (requested_extensions.find(extension.extensionName) == requested_extensions.end()) {
+            if (!requested_extensions.contains(extension.extensionName) &&
+                !context->handles.device_extensions.contains(extension.extensionName)) {
                 continue;
             }
 
@@ -823,8 +825,13 @@ namespace neuralnet::evaluators {
         vtable_load_instance(m_context->vtable, m_context->handles.instance);
         if (!m_context->handles.context_provided) {
             create_debug_messenger(m_context.get());
-
             select_physical_device(m_context.get());
+
+            user_callback_t chosen = m_context->vtable.user_callbacks.device_chosen;
+            if (chosen != nullptr) {
+                chosen(m_context.get());
+            }
+
             create_device(m_context.get());
         }
 
@@ -842,6 +849,11 @@ namespace neuralnet::evaluators {
 #endif
 
             create_allocator(m_context.get());
+        }
+
+        user_callback_t init_finished = m_context->vtable.user_callbacks.init_finished;
+        if (init_finished != nullptr) {
+            init_finished(m_context.get());
         }
     }
 
@@ -1144,7 +1156,7 @@ namespace neuralnet::evaluators {
             return false;
         }
 
-        *outputs = get_pass_ptr(result);
+        *outputs = get_pass_data(result);
         return true;
     }
 
@@ -1451,6 +1463,12 @@ namespace neuralnet::evaluators {
             v.check_result(
                 vmaMapMemory(handles.allocator, staging_buffer.allocation, (void**)&mapped));
 
+            {
+                std::ofstream dump("dump.dat", std::ios::out | std::ios::binary);
+                dump.write((const char*)(void*)mapped, staging_buffer.size);
+                dump.flush();
+            }
+
             size_t offset = 0;
             for (auto& layer : layers) {
                 for (uint64_t c = 0; c < layer.size; c++) {
@@ -1480,6 +1498,25 @@ namespace neuralnet::evaluators {
 
         number_t square_root = actual - expected;
         return square_root * square_root;
+    }
+
+    vulkan_context_t* vulkan_evaluator::get_context() { return m_context.get(); }
+
+    vulkan_network_data_t* vulkan_evaluator::get_network_data(const network* network) {
+        ZoneScoped;
+
+        if (!m_network_data.contains(network)) {
+            return nullptr;
+        }
+
+        return &m_network_data[network];
+    }
+
+    vulkan_pass_data_t* vulkan_evaluator::get_pass_data(uint64_t result) {
+        ZoneScoped;
+
+        const auto& result_data = m_results.at(result);
+        return &m_passes[result_data.pass];
     }
 
     struct vulkan_layer_t {
@@ -1768,12 +1805,5 @@ namespace neuralnet::evaluators {
 
         destroy_vulkan_buffer(m_context.get(), &staging_buffer);
         return id;
-    }
-
-    vulkan_pass_data_t* vulkan_evaluator::get_pass_ptr(uint64_t result) {
-        ZoneScoped;
-
-        const auto& result_data = m_results.at(result);
-        return &m_passes[result_data.pass];
     }
 } // namespace neuralnet::evaluators

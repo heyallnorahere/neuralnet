@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 3.21.0)
 
-set(NETWORK_LIBRARIES neuralnet)
+set(NETWORK_LIBRARIES neuralnet glfw)
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     list(APPEND ${NETWORK_LIBRARIES} pthread stdc++fs)
 endif()
+
+file(GLOB_RECURSE COMMON_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/common/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/common/*.h")
+add_library(nn_common STATIC ${COMMON_SOURCES})
+target_link_libraries(nn_common PUBLIC ${NETWORK_LIBRARIES})
 
 file(GLOB NETWORK_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 foreach(NETWORK_SOURCE ${NETWORK_SOURCES})
@@ -12,9 +16,9 @@ foreach(NETWORK_SOURCE ${NETWORK_SOURCES})
     list(APPEND NETWORKS ${NETWORK_NAME})
 
     add_executable(${NETWORK_NAME} ${NETWORK_SOURCE})
-    target_link_libraries(${NETWORK_NAME} PRIVATE ${NETWORK_LIBRARIES})
+    target_link_libraries(${NETWORK_NAME} PRIVATE nn_common)
 endforeach()
 
-set_target_properties(${NETWORKS} PROPERTIES
+set_target_properties(${NETWORKS} nn_common PROPERTIES
     CXX_STANDARD 20
     FOLDER "networks")

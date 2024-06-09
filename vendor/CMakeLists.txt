@@ -42,4 +42,7 @@ if(NN_BUILD_VULKAN AND NN_SUPPORT_VULKAN)
     execute_process(COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/shaderc/utils/git-sync-deps")
 
     add_subdirectory("shaderc")
+    if(NN_BUILD_NETWORKS)
+        add_subdirectory("glfw")
+    endif()
 endif()

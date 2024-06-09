@@ -19,3 +19,6 @@
 [submodule "vendor/shaderc"]
 	path = vendor/shaderc
 	url = https://github.com/google/shaderc.git
+[submodule "vendor/glfw"]
+	path = vendor/glfw
+	url = https://github.com/glfw/glfw.git

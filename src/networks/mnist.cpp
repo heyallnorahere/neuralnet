@@ -13,6 +13,8 @@ using number_t = neuralnet::number_t;
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
+#include "common/debug_gui.h"
+
 struct group_paths_t {
     neuralnet::fs::path images, labels;
 };
@@ -234,6 +236,7 @@ static void load_settings(neuralnet::trainer_settings_t& settings) {
 
 int main(int argc, const char** argv) {
     ZoneScoped;
+    auto gui = std::make_unique<common::debug_gui>("mnist debug");
 
     neuralnet::trainer_settings_t settings;
     settings.batch_size = 100;
@@ -242,7 +245,12 @@ int main(int argc, const char** argv) {
     settings.minimum_average_cost = 0.01;
     load_settings(settings);
 
-    auto evaluator = neuralnet::unique(neuralnet::evaluators::choose_evaluator());
+    neuralnet::evaluator_type preferred = neuralnet::evaluator_type::other;
+    if (gui->is_valid()) {
+        preferred = neuralnet::evaluator_type::vulkan;
+    }
+
+    auto evaluator = neuralnet::unique(neuralnet::evaluators::choose_evaluator(preferred));
     auto dataset = neuralnet::unique(new mnist_dataset);
 
     if (!evaluator) {
@@ -278,7 +286,33 @@ int main(int argc, const char** argv) {
     trainer->start();
     while (trainer->is_running()) {
         trainer->update();
+
+#ifdef GUI_ENABLED
+        {
+            auto vulkan_eval = (neuralnet::evaluators::vulkan_evaluator*)evaluator.get();
+            auto network_data = vulkan_eval->get_network_data(network.get());
+            const auto& image = network_data->data_image;
+
+            common::gui_image_context_t context;
+            context.image = image.image;
+            context.size.width = image.size.width;
+            context.size.height = image.size.height;
+            context.z = 0;
+            context.layout = VK_IMAGE_LAYOUT_GENERAL;
+            context.array_layer = 0;
+            context.mip_level = 0;
+            context.src_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            context.dst_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            context.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT;
+            context.access = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+
+            gui->set_displayed_image(context);
+        }
+#endif
+
+        gui->update();
     }
 
+    gui.reset();
     return 0;
 }
