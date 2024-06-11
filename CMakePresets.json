@@ -69,7 +69,8 @@
             "targets": [
                 "TracyClient",
                 "glslc_exe",
-                "zlibstatic"
+                "zlibstatic",
+                "glfw"
             ]
         },
         {

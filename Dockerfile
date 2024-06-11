@@ -8,7 +8,8 @@ LABEL org.opencontainers.image.description="neuralnet linux build"
 LABEL org.opencontainers.image.licenses=Apache-2.0
 
 RUN apt-get update
-RUN apt-get install -y git cmake build-essential libvulkan1 mesa-utils libwayland-dev
+RUN apt-get install -y git cmake build-essential libvulkan-dev pkg-config
+RUN apt-get install -y mesa-utils mesa-common-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev
 
 WORKDIR /neuralnet
 COPY vendor vendor
