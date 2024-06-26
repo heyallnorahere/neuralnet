@@ -1361,9 +1361,8 @@ namespace neuralnet::evaluators {
         const auto& v = m_context->vtable;
         const auto& network_data = m_network_data.at(data.nn);
 
-        v.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                  m_objects.pipeline_layout, 1, 1, &network_data.descriptor_set, 0,
-                                  nullptr);
+        std::vector<VkDescriptorSet> sets(2, VK_NULL_HANDLE);
+        sets[1] = network_data.descriptor_set;
 
         v.vkCmdPushConstants(command_buffer, m_objects.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
                              sizeof(uint32_t), sizeof(float), &data.delta_scalar);
@@ -1392,19 +1391,17 @@ namespace neuralnet::evaluators {
                                        0, nullptr, 1, &sync_barrier);
             }
 
+            sets[0] = pass.descriptor_set;
             v.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                      m_objects.pipeline_layout, 0, 1, &pass.descriptor_set, 0,
-                                      nullptr);
+                                      m_objects.pipeline_layout, 0, (uint32_t)sets.size(),
+                                      sets.data(), 0, nullptr);
 
-            VkExtent3D work_groups;
             VkExtent3D data_size = network_data.data_image.size;
+            uint32_t x = get_work_group_count(data_size.width);
+            uint32_t y = get_work_group_count(data_size.height);
+            uint32_t z = get_work_group_count(data_size.depth);
 
-            work_groups.width = get_work_group_count(data_size.width);
-            work_groups.height = get_work_group_count(data_size.height);
-            work_groups.depth = get_work_group_count(data_size.depth);
-
-            v.vkCmdDispatch(command_buffer, work_groups.width, work_groups.height,
-                            work_groups.depth);
+            v.vkCmdDispatch(command_buffer, x, y, z);
         }
 
         vulkan_buffer_t staging_buffer;

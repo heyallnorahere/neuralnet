@@ -94,6 +94,9 @@ namespace common {
 #ifndef GUI_ENABLED
         std::cout << "gui not enabled - not creating ui" << std::endl;
 #else
+        m_current_sync_frame = 0;
+        m_current_image = 0;
+
         m_context = nullptr;
         init_gui(title);
 #endif
