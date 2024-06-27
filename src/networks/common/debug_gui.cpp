@@ -133,6 +133,10 @@ namespace common {
 #ifdef GUI_ENABLED
     void debug_gui::set_displayed_image(const gui_image_context_t& context) {
         ZoneScoped;
+        if (m_window == nullptr) {
+            return;
+        }
+
         if (context.size.width != m_width || context.size.height != m_height) {
             m_window_resized = true;
             m_width = context.size.width;

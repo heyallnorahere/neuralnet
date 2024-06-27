@@ -1,7 +1,7 @@
 name: neuralnet
 services:
   mnist:
-    image: neuralnet:latest
+    image: ghcr.io/heyallnorahere/neuralnet:latest
     build: .
     volumes:
       - ./data:/neuralnet/data
