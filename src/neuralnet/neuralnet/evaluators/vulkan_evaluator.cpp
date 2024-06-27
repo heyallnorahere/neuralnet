@@ -1433,6 +1433,11 @@ namespace neuralnet::evaluators {
 
             create_vulkan_buffer(m_context.get(), data_size, &staging_buffer);
 
+            void* data;
+            v.check_result(vmaMapMemory(handles.allocator, staging_buffer.allocation, &data));
+            std::memset(data, 0xdc, staging_buffer.size);
+            vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
+
             VkImageMemoryBarrier src_barrier, dst_barrier;
             create_image_barrier(src_barrier, network_data.data_image.image, image_access_flags,
                                  transfer_src_access, image_compute_layout, transfer_src_layout);
@@ -1545,14 +1550,61 @@ namespace neuralnet::evaluators {
                                              &image_barrier);
     }
 
-    void vulkan_evaluator::add_network_reference(const network* network) {
+    static void create_network_staging_buffer(vulkan_context_t* context, const network* nn,
+                                              vulkan_buffer_t* buffer,
+                                              std::vector<VkBufferImageCopy>& regions) {
         ZoneScoped;
 
-        if (!m_network_data.contains(network)) {
-            auto& data = m_network_data[network];
+        size_t total_size = 0;
+        const auto& layers = nn->get_layers();
+        for (const auto& layer : layers) {
+            total_size += sizeof(number_t) * layer.size * (layer.previous_size + 1);
+        }
+
+        create_vulkan_buffer(context, total_size, buffer);
+
+        const auto& v = context->vtable;
+        const auto& handles = context->handles;
+
+        number_t* mapped = nullptr;
+        v.check_result(vmaMapMemory(handles.allocator, buffer->allocation, (void**)&mapped));
+
+        size_t current_offset = 0;
+        for (size_t i = 0; i < layers.size(); i++) {
+            const auto& layer = layers[i];
+
+            VkBufferImageCopy region{};
+            region.bufferOffset = (VkDeviceSize)current_offset * sizeof(number_t);
+            region.imageExtent.width = (uint32_t)(layer.previous_size + 1);
+            region.imageExtent.height = (uint32_t)layer.size;
+            region.imageExtent.depth = 1;
+            region.imageOffset.z = (int32_t)i;
+            region.imageSubresource.aspectMask = image_aspect_flags;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+            regions.push_back(region);
+
+            for (uint64_t c = 0; c < layer.size; c++) {
+                mapped[current_offset] = layer.biases[c];
+                copy(&layer.weights[c * layer.previous_size], &mapped[current_offset + 1],
+                     layer.previous_size * sizeof(number_t));
+
+                current_offset += layer.previous_size + 1;
+            }
+        }
+
+        vmaUnmapMemory(handles.allocator, buffer->allocation);
+    }
+
+    void vulkan_evaluator::add_network_reference(const network* nn) {
+        ZoneScoped;
+
+        if (!m_network_data.contains(nn)) {
+            auto& data = m_network_data[nn];
             data.references = 0;
 
-            const auto& layers = network->get_layers();
+            const auto& layers = nn->get_layers();
             size_t buffer_size = layers.size() * sizeof(vulkan_layer_t);
 
             VkExtent3D image_size{};
@@ -1604,23 +1656,42 @@ namespace neuralnet::evaluators {
             v.vkUpdateDescriptorSets(handles.device, (uint32_t)writes.size(), writes.data(), 0,
                                      nullptr);
 
+            VkImageMemoryBarrier src_barrier, dst_barrier;
+            create_image_barrier(src_barrier, data.data_image.image, 0, transfer_dst_access,
+                                 VK_IMAGE_LAYOUT_UNDEFINED, transfer_dst_layout);
+            create_image_barrier(dst_barrier, data.data_image.image, transfer_dst_access,
+                                 image_access_flags, transfer_dst_layout, image_compute_layout);
+
+            vulkan_buffer_t staging_buffer;
+            std::vector<VkBufferImageCopy> regions;
+            create_network_staging_buffer(m_context.get(), nn, &staging_buffer, regions);
+
             VkCommandBuffer command_buffer =
                 alloc_open_command_buffer(m_context.get(), m_objects.command_pool);
 
-            initialize_image(m_context.get(), command_buffer, data.data_image.image);
+            v.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                   transfer_stage, 0, 0, nullptr, 0, nullptr, 1, &src_barrier);
+
+            v.vkCmdCopyBufferToImage(command_buffer, staging_buffer.buffer, data.data_image.image,
+                                     transfer_dst_layout, (uint32_t)regions.size(), regions.data());
+
+            v.vkCmdPipelineBarrier(command_buffer, transfer_stage, compute_stage, 0, 0, nullptr, 0,
+                                   nullptr, 1, &dst_barrier);
+
             end_and_submit_command_buffer(m_context.get(), m_objects.compute_queue, command_buffer,
                                           true, VK_NULL_HANDLE);
 
             v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
+            destroy_vulkan_buffer(m_context.get(), &staging_buffer);
         }
 
-        m_network_data[network].references++;
+        m_network_data[nn].references++;
     }
 
-    void vulkan_evaluator::remove_network_reference(const network* network) {
+    void vulkan_evaluator::remove_network_reference(const network* nn) {
         ZoneScoped;
 
-        auto& data = m_network_data[network];
+        auto& data = m_network_data[nn];
         if (--data.references == 0 && !is_training()) {
             const auto& v = m_context->vtable;
             const auto& handles = m_context->handles;
@@ -1631,7 +1702,7 @@ namespace neuralnet::evaluators {
             destroy_vulkan_buffer(m_context.get(), &data.info_buffer);
             destroy_vulkan_image(m_context.get(), &data.data_image);
 
-            m_network_data.erase(network);
+            m_network_data.erase(nn);
         }
     }
 
