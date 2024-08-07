@@ -1406,18 +1406,6 @@ namespace neuralnet::evaluators {
         number_t* mapped = nullptr;
         v.check_result(vmaMapMemory(handles.allocator, staging_buffer.allocation, (void**)&mapped));
 
-        static size_t index = 0;
-        static const fs::path dump_directory = "dump";
-
-        fs::create_directories(dump_directory);
-        fs::path dump_path = dump_directory / ("network" + std::to_string(index++) + ".dat");
-
-        std::ofstream dump(dump_path);
-        if (dump.is_open()) {
-            dump.write((const char*)(void*)mapped, staging_buffer.size);
-            dump.close();
-        }
-
         size_t offset = 0;
         for (auto& layer : layers) {
             for (uint64_t c = 0; c < layer.size; c++) {

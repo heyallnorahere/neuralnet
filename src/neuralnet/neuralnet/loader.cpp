@@ -7,8 +7,6 @@
 using json = nlohmann::json;
 
 namespace neuralnet {
-    static const fs::path s_dump_directory = "dump";
-
     struct layer_desc_t {
         fs::path path;
         uint64_t size;
@@ -124,10 +122,6 @@ namespace neuralnet {
         std::vector<layer_t> layers(network_desc.layers.size());
         std::vector<uint8_t> buffer;
 
-        fs::create_directories(s_dump_directory);
-        fs::path dump_path = s_dump_directory / "load.dat";
-        std::ofstream dump(dump_path, std::ios::out | std::ios::binary);
-
         for (size_t i = 0; i < layers.size(); i++) {
             auto& layer = layers[i];
             const auto& layer_desc = network_desc.layers[i];
@@ -153,12 +147,6 @@ namespace neuralnet {
             for (uint64_t w = 0; w < layer.size * layer.previous_size; w++) {
                 layer.weights[w] = read_number(data_file, buffer);
             }
-
-            dump.write((const char*)(void*)layer.biases.data(),
-                       layer.biases.size() * sizeof(number_t));
-
-            dump.write((const char*)(void*)layer.weights.data(),
-                       layer.weights.size() * sizeof(number_t));
         }
 
         m_network = unique(new network(layers));
@@ -180,10 +168,6 @@ namespace neuralnet {
         desc.input_count = layers[0].previous_size;
         desc.layers.resize(layers.size());
 
-        fs::create_directories(s_dump_directory);
-        fs::path dump_path = s_dump_directory / "save.dat";
-        std::ofstream dump(dump_path, std::ios::out | std::ios::binary);
-
         std::vector<uint8_t> buffer;
         for (size_t i = 0; i < layers.size(); i++) {
             const auto& layer = layers[i];
@@ -201,12 +185,6 @@ namespace neuralnet {
             for (size_t w = 0; w < layer.weights.size(); w++) {
                 write_number(data_file, layer.weights[w], buffer);
             }
-
-            dump.write((const char*)(void*)layer.biases.data(),
-                       layer.biases.size() * sizeof(number_t));
-
-            dump.write((const char*)(void*)layer.weights.data(),
-                       layer.weights.size() * sizeof(number_t));
         }
 
         json desc_data = desc;
