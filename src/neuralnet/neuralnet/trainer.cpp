@@ -66,9 +66,10 @@ namespace neuralnet {
             throw std::runtime_error("dataset has no testing group!");
         }
 
-        m_phase = dataset_group::training;
+        m_phase = dataset_group::testing;
         m_stage = training_stage::eval;
         m_current_settings = m_settings;
+        m_current_eval_index = 0;
 
         uint64_t training_sample_count = m_dataset->get_sample_count(dataset_group::training);
         m_batch_count = (uint64_t)std::floor((long double)training_sample_count /

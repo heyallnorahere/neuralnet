@@ -216,8 +216,8 @@ namespace neuralnet::evaluators {
                             VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
         VmaAllocationCreateInfo alloc_info{};
-        alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-        alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
 
         context->vtable.check_result(vmaCreateBuffer(context->handles.allocator, &create_info,
                                                      &alloc_info, &buffer->buffer,
@@ -382,7 +382,8 @@ namespace neuralnet::evaluators {
                                       VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 
         create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                                  VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+                                  VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                  VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 
         v.check_result(v.vkCreateDebugUtilsMessengerEXT(context->handles.instance, &create_info,
                                                         &v.alloc_callbacks,
@@ -1342,6 +1343,98 @@ namespace neuralnet::evaluators {
         return result;
     }
 
+    void vulkan_evaluator::copy_network_from_gpu(network* nn) {
+        ZoneScoped;
+
+        const auto& v = m_context->vtable;
+        const auto& handles = m_context->handles;
+        const auto& network_data = m_network_data.at(nn);
+
+        vulkan_buffer_t staging_buffer;
+        std::vector<VkBufferImageCopy> regions;
+        size_t data_size = 0;
+
+        auto& layers = nn->get_layers();
+        for (size_t i = 0; i < nn->get_layers().size(); i++) {
+            const auto& layer = layers[i];
+
+            VkBufferImageCopy region{};
+            region.bufferOffset = (VkDeviceSize)data_size;
+            region.imageOffset.z = (uint32_t)i;
+            region.imageExtent.width = (uint32_t)layer.previous_size + 1;
+            region.imageExtent.height = (uint32_t)layer.size;
+            region.imageExtent.depth = 1;
+            region.imageSubresource.aspectMask = image_aspect_flags;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+            region.imageSubresource.mipLevel = 0;
+            regions.push_back(region);
+
+            data_size += sizeof(number_t) * region.imageExtent.width * region.imageExtent.height;
+        }
+
+        VkCommandBuffer command_buffer =
+            alloc_open_command_buffer(m_context.get(), m_objects.command_pool);
+        create_vulkan_buffer(m_context.get(), data_size, &staging_buffer);
+
+        {
+            TracyVkZoneTransient(handles.profiler_context, vk_zone, command_buffer,
+                                 "Copy network from GPU", m_profiling_enabled);
+
+            VkImageMemoryBarrier src_barrier, dst_barrier;
+            create_image_barrier(src_barrier, network_data.data_image.image, image_access_flags,
+                                 transfer_src_access, image_compute_layout, transfer_src_layout);
+            create_image_barrier(dst_barrier, network_data.data_image.image, transfer_src_access,
+                                 image_access_flags, transfer_src_layout, image_compute_layout);
+
+            v.vkCmdPipelineBarrier(command_buffer, compute_stage, transfer_stage, 0, 0, nullptr, 0,
+                                   nullptr, 1, &src_barrier);
+
+            v.vkCmdCopyImageToBuffer(command_buffer, network_data.data_image.image,
+                                     transfer_src_layout, staging_buffer.buffer,
+                                     (uint32_t)regions.size(), regions.data());
+
+            v.vkCmdPipelineBarrier(command_buffer, transfer_stage, compute_stage, 0, 0, nullptr, 0,
+                                   nullptr, 1, &dst_barrier);
+        }
+
+        end_and_submit_command_buffer(m_context.get(), m_objects.compute_queue, command_buffer,
+                                      true, VK_NULL_HANDLE);
+
+        v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
+
+        number_t* mapped = nullptr;
+        v.check_result(vmaMapMemory(handles.allocator, staging_buffer.allocation, (void**)&mapped));
+
+        static size_t index = 0;
+        static const fs::path dump_directory = "dump";
+
+        fs::create_directories(dump_directory);
+        fs::path dump_path = dump_directory / ("network" + std::to_string(index++) + ".dat");
+
+        std::ofstream dump(dump_path);
+        if (dump.is_open()) {
+            dump.write((const char*)(void*)mapped, staging_buffer.size);
+            dump.close();
+        }
+
+        size_t offset = 0;
+        for (auto& layer : layers) {
+            for (uint64_t c = 0; c < layer.size; c++) {
+                size_t current_offset = offset + c * (layer.previous_size + 1);
+                layer.biases[c] = mapped[current_offset];
+
+                copy(&mapped[current_offset + 1], &layer.weights[c * layer.previous_size],
+                     layer.previous_size * sizeof(number_t));
+            }
+
+            offset += layer.size * (layer.previous_size + 1);
+        }
+
+        vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
+        destroy_vulkan_buffer(m_context.get(), &staging_buffer);
+    }
+
     bool vulkan_evaluator::compose_deltas(const delta_composition_data_t& data) {
         ZoneScoped;
         if (!m_network_data.contains(data.nn)) {
@@ -1404,85 +1497,15 @@ namespace neuralnet::evaluators {
             v.vkCmdDispatch(command_buffer, x, y, z);
         }
 
-        vulkan_buffer_t staging_buffer;
-        if (data.copy) {
-            TracyVkZoneTransient(handles.profiler_context, vk_zone, command_buffer,
-                                 "Copy network data to staging buffer", m_profiling_enabled);
-
-            std::vector<VkBufferImageCopy> regions;
-            size_t data_size = 0;
-
-            for (size_t i = 0; i < layers.size(); i++) {
-                const auto& layer = layers[i];
-
-                VkBufferImageCopy region{};
-                region.bufferOffset = (VkDeviceSize)data_size;
-                region.imageOffset.z = (uint32_t)i;
-                region.imageExtent.width = (uint32_t)layer.previous_size + 1;
-                region.imageExtent.height = (uint32_t)layer.size;
-                region.imageExtent.depth = 1;
-                region.imageSubresource.aspectMask = image_aspect_flags;
-                region.imageSubresource.baseArrayLayer = 0;
-                region.imageSubresource.layerCount = 1;
-                region.imageSubresource.mipLevel = 0;
-                regions.push_back(region);
-
-                data_size +=
-                    sizeof(number_t) * region.imageExtent.width * region.imageExtent.height;
-            }
-
-            create_vulkan_buffer(m_context.get(), data_size, &staging_buffer);
-
-            void* data;
-            v.check_result(vmaMapMemory(handles.allocator, staging_buffer.allocation, &data));
-            std::memset(data, 0xdc, staging_buffer.size);
-            vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
-
-            VkImageMemoryBarrier src_barrier, dst_barrier;
-            create_image_barrier(src_barrier, network_data.data_image.image, image_access_flags,
-                                 transfer_src_access, image_compute_layout, transfer_src_layout);
-            create_image_barrier(dst_barrier, network_data.data_image.image, transfer_src_access,
-                                 image_access_flags, transfer_src_layout, image_compute_layout);
-
-            v.vkCmdPipelineBarrier(command_buffer, compute_stage, transfer_stage, 0, 0, nullptr, 0,
-                                   nullptr, 1, &src_barrier);
-
-            v.vkCmdCopyImageToBuffer(command_buffer, network_data.data_image.image,
-                                     transfer_src_layout, staging_buffer.buffer,
-                                     (uint32_t)regions.size(), regions.data());
-
-            v.vkCmdPipelineBarrier(command_buffer, transfer_stage, compute_stage, 0, 0, nullptr, 0,
-                                   nullptr, 1, &dst_barrier);
-        }
-
         end_and_submit_command_buffer(m_context.get(), m_objects.compute_queue, command_buffer,
                                       true, VK_NULL_HANDLE);
 
+        v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
+
         if (data.copy) {
-            ZoneScopedN("Copy network data to layers");
-
-            number_t* mapped = nullptr;
-            v.check_result(
-                vmaMapMemory(handles.allocator, staging_buffer.allocation, (void**)&mapped));
-
-            size_t offset = 0;
-            for (auto& layer : layers) {
-                for (uint64_t c = 0; c < layer.size; c++) {
-                    size_t current_offset = offset + c * (layer.previous_size + 1);
-                    layer.biases[c] = mapped[current_offset];
-
-                    copy(&mapped[current_offset + 1], &layer.weights[c * layer.previous_size],
-                         layer.previous_size * sizeof(number_t));
-                }
-
-                offset += layer.size * (layer.previous_size + 1);
-            }
-
-            vmaUnmapMemory(handles.allocator, staging_buffer.allocation);
-            destroy_vulkan_buffer(m_context.get(), &staging_buffer);
+            copy_network_from_gpu(data.nn);
         }
 
-        v.vkFreeCommandBuffers(handles.device, m_objects.command_pool, 1, &command_buffer);
         return true;
     }
 
@@ -1632,23 +1655,25 @@ namespace neuralnet::evaluators {
             image_info.imageView = data.data_image.view;
 
             std::vector<VkWriteDescriptorSet> writes;
-            auto write = &writes.emplace_back();
-            write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write->dstSet = data.descriptor_set;
-            write->dstBinding = 0;
-            write->dstArrayElement = 0;
-            write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write->descriptorCount = 1;
-            write->pBufferInfo = &buffer_info;
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = data.descriptor_set;
+            write.dstBinding = 0;
+            write.dstArrayElement = 0;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write.descriptorCount = 1;
+            write.pBufferInfo = &buffer_info;
+            writes.push_back(write);
 
-            write = &writes.emplace_back();
-            write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write->dstSet = data.descriptor_set;
-            write->dstBinding = 1;
-            write->dstArrayElement = 0;
-            write->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            write->descriptorCount = 1;
-            write->pImageInfo = &image_info;
+            std::memset(&write, 0, sizeof(VkWriteDescriptorSet));
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = data.descriptor_set;
+            write.dstBinding = 1;
+            write.dstArrayElement = 0;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            write.descriptorCount = 1;
+            write.pImageInfo = &image_info;
+            writes.push_back(write);
 
             const auto& v = m_context->vtable;
             const auto& handles = m_context->handles;

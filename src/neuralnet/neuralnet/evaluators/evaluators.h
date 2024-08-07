@@ -285,6 +285,7 @@ namespace neuralnet::evaluators {
         void remove_pass_reference(uint64_t pass);
         uint64_t new_pass(const network* network, const std::vector<number_t>& inputs);
 
+        void copy_network_from_gpu(network* nn);
 
         std::unique_ptr<vulkan_context_t> m_context;
         vulkan_evaluator_objects_t m_objects;
