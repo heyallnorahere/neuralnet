@@ -286,30 +286,6 @@ int main(int argc, const char** argv) {
     trainer->start();
     while (trainer->is_running()) {
         trainer->update();
-
-#ifdef GUI_ENABLED
-        {
-            auto vulkan_eval = (neuralnet::evaluators::vulkan_evaluator*)evaluator.get();
-            auto network_data = vulkan_eval->get_network_data(network.get());
-            const auto& image = network_data->data_image;
-
-            common::gui_image_context_t context;
-            context.image = image.image;
-            context.size.width = image.size.width;
-            context.size.height = image.size.height;
-            context.z = 0;
-            context.layout = VK_IMAGE_LAYOUT_GENERAL;
-            context.array_layer = 0;
-            context.mip_level = 0;
-            context.src_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-            context.dst_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-            context.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT;
-            context.access = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-
-            gui->set_displayed_image(context);
-        }
-#endif
-
         gui->update();
     }
 

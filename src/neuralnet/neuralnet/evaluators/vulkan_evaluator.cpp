@@ -1180,7 +1180,7 @@ namespace neuralnet::evaluators {
 
         VkBufferImageCopy image_copy{};
         image_copy.bufferOffset = 0;
-        image_copy.imageOffset.y = (int32_t)activations.size.height - 1;
+        image_copy.imageOffset.y = (int32_t)activations.size.height - 2;
         image_copy.imageExtent.width = (uint32_t)last_layer.size;
         image_copy.imageExtent.height = 1;
         image_copy.imageExtent.depth = (uint32_t)pass->run_count;
@@ -1620,6 +1620,8 @@ namespace neuralnet::evaluators {
         vmaUnmapMemory(handles.allocator, buffer->allocation);
     }
 
+    static void fill_network_info(vulkan_layer_t* layers, const network* nn) { ZoneScoped; }
+
     void vulkan_evaluator::add_network_reference(const network* nn) {
         ZoneScoped;
 
@@ -1644,6 +1646,23 @@ namespace neuralnet::evaluators {
 
             alloc_descriptor_sets(m_context.get(), m_objects.network_layout,
                                   m_objects.descriptor_pool, 1, &data.descriptor_set);
+
+            const auto& v = m_context->vtable;
+            const auto& handles = m_context->handles;
+
+            vulkan_layer_t* layer_info = nullptr;
+            v.check_result(vmaMapMemory(handles.allocator, data.info_buffer.allocation, (void**)&layer_info));
+
+            for (size_t i = 0; i < layers.size(); i++) {
+                const auto& layer = layers[i];
+                auto& info = layer_info[i];
+
+                info.size = (uint32_t)layer.size;
+                info.previous_size = (uint32_t)layer.previous_size;
+                info.activation_function = (uint32_t)layer.function;
+            }
+
+            vmaUnmapMemory(handles.allocator, data.info_buffer.allocation);
 
             VkDescriptorBufferInfo buffer_info{};
             buffer_info.range = (VkDeviceSize)buffer_size;
@@ -1674,9 +1693,6 @@ namespace neuralnet::evaluators {
             write.descriptorCount = 1;
             write.pImageInfo = &image_info;
             writes.push_back(write);
-
-            const auto& v = m_context->vtable;
-            const auto& handles = m_context->handles;
 
             v.vkUpdateDescriptorSets(handles.device, (uint32_t)writes.size(), writes.data(), 0,
                                      nullptr);
